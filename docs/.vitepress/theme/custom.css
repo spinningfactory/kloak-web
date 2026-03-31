@@ -1,12 +1,23 @@
 .VPNavBarTitle .logo {
-  width: 28px;
-  height: 28px;
-  margin-right: -2px;
+  width: 22px;
+  height: 22px;
+  margin-right: 1px;
 }
 
-.VPNavBarTitle .text {
-  font-size: 18px;
-  font-weight: 700;
+.VPNavBarTitle .title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.VPHero .name::before {
+  content: '';
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  background: url('/transparent-logo.svg') no-repeat center / contain;
+  margin-right: 0.02em;
+  vertical-align: -0.1em;
 }
 
 .dark {
@@ -14,8 +25,17 @@
   --vp-c-bg-alt: #111827;
   --vp-c-bg-elv: #1E293B;
   --vp-c-bg-soft: #1F2937;
-  --vp-nav-bg-color: #0B0F19;
+  --vp-nav-bg-color: rgba(17, 24, 39, 0.8);
   --vp-sidebar-bg-color: #0B0F19;
+}
+
+.VPNav .VPNavBar {
+  background-color: #111827 !important;
+  border-bottom: 1px solid rgba(23, 130, 206, 0.2);
+}
+
+.VPNav .VPNavBar .divider {
+  display: none;
 }
 
 .VPContent {
