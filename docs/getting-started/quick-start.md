@@ -8,12 +8,12 @@ Protect your first Kubernetes secret with Kloak in under five minutes. By the en
                     Your App                         Network
                +--------------+               +----------------+
   Reads from   |              |   TLS write   |                |
-  mounted vol  | kloak:a1b2.. | ------------> | REAL-API-KEY   |
+  mounted vol  | kloak:MPZV.. | ------------> | REAL-API-KEY   |
                | (shadow)     |   eBPF rewrites in-kernel      |
                +--------------+               +----------------+
 ```
 
-Your application sees `kloak:a1b2c3d4-...` in its secret files. When it sends that value over a TLS connection, Kloak's eBPF program intercepts the write and substitutes the real secret before it hits the wire. The application never handles the actual credential.
+Your application sees `kloak:MPZVR3GH...` in its secret files. When it sends that value over a TLS connection, Kloak's eBPF program intercepts the write and substitutes the real secret before it hits the wire. The application never handles the actual credential.
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ kubectl apply -f secret.yaml -n kloak-demo
 Two things happen when you apply this:
 
 1. Kloak's `SecretReconciler` detects the `getkloak.io/enabled=true` label.
-2. It creates a shadow secret called `my-api-credentials-kloak` containing a UUID placeholder (`kloak:<UUID>`) that is length-matched to the original value.
+2. It creates a shadow secret called `my-api-credentials-kloak` containing a ULID placeholder (`kloak:<ULID>`) that is length-matched to the original value.
 
 Verify the shadow secret was created:
 
@@ -79,7 +79,7 @@ kubectl get secret my-api-credentials-kloak -n kloak-demo \
   -o jsonpath='{.data.api-key}' | base64 -d
 ```
 
-You will see something like `kloak:a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d` -- a harmless placeholder that matches the byte length of your real secret.
+You will see something like `kloak:MPZVR3GHWT4E6YBCA01JQXK5N8` -- a harmless placeholder that matches the byte length of your real secret.
 
 ## Step 3: Deploy an Application
 
@@ -158,7 +158,7 @@ You should see two key things:
 
 **1. The app reads the shadow value (not the real secret):**
 ```
-Secret value seen by app: kloak:a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+Secret value seen by app: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 ```
 
 **2. The HTTPS response from httpbin.org shows the real secret was sent:**
@@ -198,7 +198,7 @@ Notice the `secretName` was changed from `my-api-credentials` to `my-api-credent
 
 In Step 2, you added the label `getkloak.io/hosts: "api.example.com"`. This tells Kloak to only replace the placeholder when the TLS connection is headed to `api.example.com`.
 
-If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kloak:...` UUID instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
+If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kloak:...` ULID instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
 
 To allow multiple hosts, use a comma-separated list:
 

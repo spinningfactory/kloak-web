@@ -10,7 +10,7 @@ Without host filtering, any outbound TLS connection from a Kloak-enabled pod cou
 2. An attacker exploits an SSRF vulnerability and makes your app send the same header to `evil.attacker.com`
 3. Without host filtering, the eBPF uprobe rewrites the `kloak:` placeholder for **both** destinations
 
-With host filtering enabled, the eBPF program checks the TLS connection's destination hostname. If it does not match the allowed list, the placeholder is **not** rewritten -- the remote server receives the harmless `kloak:<UUID>` string instead of your real secret.
+With host filtering enabled, the eBPF program checks the TLS connection's destination hostname. If it does not match the allowed list, the placeholder is **not** rewritten -- the remote server receives the harmless `kloak:<ULID>` string instead of your real secret.
 
 ::: danger
 Without host filtering, Kloak protects secrets from being visible in application memory, but does not prevent network-level exfiltration. Always configure `getkloak.io/hosts` for production secrets.
@@ -128,7 +128,7 @@ data:
 
 **Result:**
 - Request to `https://api.stripe.com/v1/charges` -- secret is rewritten with real value
-- Request to `https://evil.example.com/steal` -- secret remains as `kloak:<UUID>`
+- Request to `https://evil.example.com/steal` -- secret remains as `kloak:<ULID>`
 
 ### Example 2: Two Secrets, Different Hosts
 
@@ -154,7 +154,7 @@ When the application sends both secrets to `httpbin.org`:
 
 ```
 X-Secret-Allowed: REAL-ALLOWED-KEY-12345    # Replaced -- host matches
-X-Secret-Blocked: kloak:b2c3d4e5-f6a7-...  # NOT replaced -- host mismatch
+X-Secret-Blocked: kloak:QN4FX8KJ...  # NOT replaced -- host mismatch
 ```
 
 ### Example 3: Raw TLS Filtering (Non-HTTP)
@@ -170,7 +170,7 @@ ctx = ssl.create_default_context()
 # and stored in dns_ip_map for host verification
 with socket.create_connection(("api.stripe.com", 443)) as sock:
     with ctx.wrap_socket(sock, server_hostname="api.stripe.com") as tls:
-        tls.sendall(b"secret data containing kloak:UUID here")
+        tls.sendall(b"secret data containing kloak:ULID here")
 ```
 
 ## Verifying Host Filtering
@@ -186,7 +186,7 @@ kubectl logs -n kloak-system -l app.kubernetes.io/component=controller | grep "S
 Output:
 
 ```
-Synced secret into eBPF map  hash="kloak:a1b2c3d4-..."  hostLen=15
+Synced secret into eBPF map  hash="kloak:MPZVR3GH..."  hostLen=15
 ```
 
 A `hostLen` greater than 0 confirms host filtering is active. A `hostLen` of 0 means wildcard (all hosts allowed).
@@ -199,7 +199,7 @@ Deploy the demo application and check the response:
 kubectl logs -l app=demo-python -n kloak-demo -c demo-app | grep -A5 "headers"
 ```
 
-You should see the allowed secret replaced with the real value and the blocked secret still showing the `kloak:` UUID.
+You should see the allowed secret replaced with the real value and the blocked secret still showing the `kloak:` ULID.
 
 ## Security Considerations
 

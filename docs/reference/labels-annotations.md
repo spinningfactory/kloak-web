@@ -25,8 +25,8 @@ Controls whether Kloak processes a resource. The value must be exactly `"true"` 
 
 When set on a Secret, the SecretReconciler:
 
-1. Creates a shadow secret named `<secret-name>-kloak` with `kloak:<UUID>` placeholder values
-2. Stores the UUID-to-real-value mapping in the in-memory store
+1. Creates a shadow secret named `<secret-name>-kloak` with `kloak:<ULID>` placeholder values
+2. Stores the ULID-to-real-value mapping in the in-memory store
 3. Sets up an `OwnerReference` so the shadow is garbage collected when the original is deleted
 
 ```yaml
@@ -131,7 +131,7 @@ metadata:
 ```
 
 **Behavior:**
-- If the label is **present**: only connections to the specified hostname(s) receive the real value. All other destinations see the `kloak:<UUID>` placeholder.
+- If the label is **present**: only connections to the specified hostname(s) receive the real value. All other destinations see the `kloak:<ULID>` placeholder.
 - If the label is **absent** or empty: the secret is allowed for all destinations (wildcard).
 
 ::: warning

@@ -146,7 +146,7 @@ Kloak scans `/proc/<pid>/maps` for any library matching `libssl.so*`, `libboring
 Kloak detects `libgnutls.so` in container processes and looks for `gnutls_record_send` and `gnutls_record_send2` symbols. Uprobe attachment is attempted, but the eBPF handler for GnuTLS is not yet implemented. Applications using GnuTLS (common in GNOME-based tools, `wget`, and some C/C++ applications) will have uprobes attached but secret rewriting will not occur.
 
 ::: warning
-GnuTLS support is a work in progress. The shadow secret mechanism still works — your application will read `kloak:<UUID>` placeholders — but in-kernel rewriting is not yet active for GnuTLS connections.
+GnuTLS support is a work in progress. The shadow secret mechanism still works — your application will read `kloak:<ULID>` placeholders — but in-kernel rewriting is not yet active for GnuTLS connections.
 :::
 
 ## What Is NOT Supported
@@ -161,7 +161,7 @@ Examples of unsupported stacks:
 - **s2n-tls** (AWS's TLS library, different API)
 
 ::: tip
-If your application uses an unsupported TLS stack, you may still benefit from Kloak's shadow secret mechanism. The application will read `kloak:<UUID>` values, but they will be sent as-is without in-kernel rewriting. You would need a sidecar proxy or application-level integration to perform the substitution.
+If your application uses an unsupported TLS stack, you may still benefit from Kloak's shadow secret mechanism. The application will read `kloak:<ULID>` values, but they will be sent as-is without in-kernel rewriting. You would need a sidecar proxy or application-level integration to perform the substitution.
 :::
 
 ### Statically Linked Go Binaries Without Symbol Table
