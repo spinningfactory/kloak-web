@@ -4,6 +4,11 @@
   margin-right: -2px;
 }
 
+.VPNavBarTitle .text {
+  font-size: 18px;
+  font-weight: 700;
+}
+
 .dark {
   --vp-c-bg: #0B0F19;
   --vp-c-bg-alt: #111827;
