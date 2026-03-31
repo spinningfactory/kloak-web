@@ -20,17 +20,16 @@ Your application sees `kloak:MPZVR3GH...` in its secret files. When it sends tha
 - A running Kubernetes cluster with [Kloak installed](./installation.md)
 - `kubectl` configured and pointed at your cluster
 
-## Step 1: Enable a Namespace
+## Step 1: Create a Namespace
 
-Kloak's webhook only intercepts pods in namespaces that opt in. Label your target namespace:
+Create a namespace for the demo:
 
 ```bash
 kubectl create namespace kloak-demo
-kubectl label namespace kloak-demo getkloak.io/enabled=true
 ```
 
-::: tip Why namespace-level enablement?
-The mutating webhook uses a `namespaceSelector` to limit its scope. Only namespaces with the `getkloak.io/enabled=true` label trigger pod mutation. This prevents Kloak from interfering with system namespaces or workloads that don't need secret protection.
+::: tip Enablement model
+Kloak uses a layered opt-in model. The webhook fires for all non-system namespaces, but only mutates pods that are explicitly enabled via pod annotations, namespace labels, or owner workload labels. In this guide, we use a pod annotation in Step 3 to enable Kloak.
 :::
 
 ## Step 2: Create a Secret
@@ -45,7 +44,7 @@ metadata:
   name: my-api-credentials
   labels:
     getkloak.io/enabled: "true"
-    getkloak.io/hosts: "api.example.com"
+    getkloak.io/hosts: "httpbin.org"
 type: Opaque
 stringData:
   api-key: "sk-live-REAL-SECRET-KEY-12345"
@@ -116,7 +115,7 @@ spec:
                 SECRET=$(cat /etc/secrets/api-key)
                 echo "Secret value seen by app: $SECRET"
                 echo "---"
-                echo "Making HTTPS request to api.example.com..."
+                echo "Making HTTPS request to httpbin.org..."
                 curl -sk -H "Authorization: Bearer $SECRET" \
                   https://httpbin.org/headers
                 echo ""
@@ -196,7 +195,7 @@ Notice the `secretName` was changed from `my-api-credentials` to `my-api-credent
 
 ## How Host Filtering Works
 
-In Step 2, you added the label `getkloak.io/hosts: "api.example.com"`. This tells Kloak to only replace the placeholder when the TLS connection is headed to `api.example.com`.
+In Step 2, you added the label `getkloak.io/hosts: "httpbin.org"`. This tells Kloak to only replace the placeholder when the TLS connection is headed to `httpbin.org`.
 
 If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kloak:...` ULID instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
 
@@ -204,7 +203,7 @@ To allow multiple hosts, use a comma-separated list:
 
 ```yaml
 labels:
-  getkloak.io/hosts: "api.example.com,api.staging.example.com"
+  getkloak.io/hosts: "httpbin.org,api.staging.example.com"
 ```
 
 To allow a secret to be sent to any host, omit the `getkloak.io/hosts` label entirely.

@@ -10,6 +10,7 @@ Before installing Kloak, make sure your environment meets the following requirem
 |---|---|---|
 | Kubernetes | 1.28+ | Any conformant distribution (EKS, GKE, AKS, k3s, etc.) |
 | Linux kernel | 5.17+ | Required on worker nodes for `bpf_loop` support |
+| Helm | 3.12+ | Used for installing and managing Kloak |
 | kubectl | 1.28+ | Configured with cluster access |
 | cgroup v2 | Enabled | Most modern distributions enable this by default |
 
@@ -22,21 +23,27 @@ The output should show `5.17` or higher (e.g., `6.1.0-18-amd64`).
 :::
 
 ::: warning eBPF requires privileged access
-The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`, and `CAP_SYS_RESOURCE`. This is required to load eBPF programs and attach uprobes to container processes. Review the [RBAC manifests](https://github.com/spinningfactory/kloak/blob/main/config/manifests/rbac.yaml) to understand the exact permissions granted.
+The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`, and `CAP_SYS_RESOURCE`. This is required to load eBPF programs and attach uprobes to container processes.
 :::
 
-## Deploy with Kustomize
+## Install with Helm
 
-Kloak ships with production-ready Kustomize overlays. Deploy the entire stack (namespace, RBAC, controller DaemonSet, webhook Deployment) in a single command:
+Add the Kloak Helm repository and install:
 
 ```bash
-kubectl apply -k https://github.com/spinningfactory/kloak/config/overlays/prod
+helm repo add kloak https://getkloak.github.io/kloak
+helm repo update
+
+helm install kloak kloak/kloak \
+  -n kloak-system --create-namespace
 ```
 
 This creates the `kloak-system` namespace and deploys two components:
 
-- **kloak-controller** -- A DaemonSet that runs on every node. It watches secrets, creates shadow copies, manages TLS certificates for the webhook, and loads eBPF programs to intercept TLS writes.
+- **kloak-controller** -- A DaemonSet that runs on every node. It watches secrets, creates shadow copies, and loads eBPF programs to intercept TLS writes.
 - **kloak-webhook** -- A Deployment that runs the mutating admission webhook. It intercepts pod creation and rewrites secret volume references to point to Kloak shadow secrets.
+
+In `auto` certificate mode (the default), Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration`. No manual certificate management is needed.
 
 ## Verify the Installation
 
@@ -54,7 +61,7 @@ kloak-controller-abcde           1/1     Running   0          45s
 kloak-webhook-6f7b8c9d10-xyz12   1/1     Running   0          40s
 ```
 
-Wait for both pods to reach `Running` status. The webhook pod has an init container that waits for the controller to generate TLS certificates, so it may take a few extra seconds.
+Wait for both pods to reach `Running` status.
 
 You can also verify the components are healthy with rollout status:
 
@@ -71,30 +78,39 @@ Confirm that the mutating webhook configuration was created and has a valid CA b
 kubectl get mutatingwebhookconfiguration kloak-mutating-webhook
 ```
 
-The controller automatically generates TLS certificates and patches the webhook's `caBundle` field on startup. No manual certificate management is needed.
+## Customizing the Installation
 
-## Customizing the Image
-
-The production overlay defaults to `ghcr.io/your-org/kloak:v1.0.0`. To use your own registry or tag, create a custom Kustomize overlay:
-
-```yaml
-# my-overlay/kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-resources:
-  - https://github.com/spinningfactory/kloak/config/overlays/prod
-
-images:
-  - name: ghcr.io/your-org/kloak
-    newName: your-registry.example.com/kloak
-    newTag: v1.2.3
-```
-
-Then deploy with:
+Override any value in the Helm chart using `--set` or a custom values file:
 
 ```bash
-kubectl apply -k my-overlay/
+helm install kloak kloak/kloak \
+  -n kloak-system --create-namespace \
+  --set image.repository=your-registry.example.com/kloak \
+  --set image.tag=v1.2.3
+```
+
+Or create a custom values file:
+
+```yaml
+# my-values.yaml
+image:
+  repository: your-registry.example.com/kloak
+  tag: v1.2.3
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+```
+
+```bash
+helm install kloak kloak/kloak \
+  -n kloak-system --create-namespace \
+  -f my-values.yaml
 ```
 
 ## Uninstall
@@ -102,10 +118,11 @@ kubectl apply -k my-overlay/
 To remove Kloak and all its resources from your cluster:
 
 ```bash
-kubectl delete -k https://github.com/spinningfactory/kloak/config/overlays/prod
+helm uninstall kloak -n kloak-system
+kubectl delete namespace kloak-system
 ```
 
-This removes the controller, webhook, RBAC roles, and the `kloak-system` namespace. Shadow secrets created by Kloak in application namespaces are **not** automatically deleted. To clean those up:
+Shadow secrets created by Kloak in application namespaces are **not** automatically deleted. To clean those up:
 
 ```bash
 kubectl delete secrets -l getkloak.io/managed=true --all-namespaces
