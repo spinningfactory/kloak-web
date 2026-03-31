@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: loak Documentation
+  name: LOAK Documentation
   tagline: Secure your Kubernetes secrets with zero code changes
   actions:
     - theme: brand

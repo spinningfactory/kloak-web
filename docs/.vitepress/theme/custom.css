@@ -10,14 +10,18 @@
   letter-spacing: 0.02em;
 }
 
+.VPHero .name {
+  max-width: none !important;
+}
+
 .VPHero .name::before {
   content: '';
   display: inline-block;
-  width: 0.9em;
-  height: 0.9em;
+  width: 0.80em;
+  height: 0.80em;
   background: url('/transparent-logo.svg') no-repeat center / contain;
   margin-right: 0.02em;
-  vertical-align: -0.1em;
+  vertical-align: -0.04em;
 }
 
 .dark {
