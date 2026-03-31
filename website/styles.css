@@ -213,6 +213,17 @@ code {
     gap: var(--space-4);
 }
 
+.nav-github {
+    display: flex;
+    align-items: center;
+    color: var(--color-text-secondary);
+    transition: color var(--transition-fast);
+}
+
+.nav-github:hover {
+    color: var(--color-text);
+}
+
 .nav-cta {
     display: inline-block;
     padding: var(--space-2) var(--space-5);

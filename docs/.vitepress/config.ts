@@ -61,11 +61,11 @@ export default defineConfig({
     ],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/getkloak/kloak' },
+      { icon: 'github', link: 'https://github.com/spinningfactory/kloak' },
     ],
 
     editLink: {
-      pattern: 'https://github.com/getkloak/kloak/edit/main/website/docs/:path',
+      pattern: 'https://github.com/spinningfactory/kloak/edit/main/website/docs/:path',
       text: 'Edit this page on GitHub',
     },
 
