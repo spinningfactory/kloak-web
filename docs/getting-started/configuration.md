@@ -192,7 +192,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - https://github.com/getkloak/kloak/config/overlays/prod
+  - https://github.com/spinningfactory/kloak/config/overlays/prod
 
 patches:
   - patch: |-
