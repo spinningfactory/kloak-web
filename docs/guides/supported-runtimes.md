@@ -9,6 +9,7 @@ When Kloak's controller detects a new pod, it resolves the container's PID and p
 1. **Go `crypto/tls`** -- Looks for the `crypto/tls.(*Conn).Write` symbol in the binary
 2. **OpenSSL / BoringSSL (statically linked)** -- Looks for `SSL_write` and `SSL_write_ex` symbols in the main executable
 3. **OpenSSL / BoringSSL (dynamically linked)** -- Scans `/proc/<pid>/maps` for shared libraries matching `libssl.so*`, `libboringssl.so*`, or `libcrypto.so*`, then probes those for `SSL_write`/`SSL_write_ex`
+4. **GnuTLS (dynamically linked)** -- Scans `/proc/<pid>/maps` for `libgnutls.so*` and looks for `gnutls_record_send` / `gnutls_record_send2` symbols
 
 The first successful attachment wins. Host filtering uses DNS-verified resolution which works identically for all runtimes.
 
@@ -138,15 +139,24 @@ Any application that dynamically links against `libssl.so` is automatically supp
 
 Kloak scans `/proc/<pid>/maps` for any library matching `libssl.so*`, `libboringssl.so*`, or `libcrypto.so*` and attaches uprobes automatically.
 
+## GnuTLS
+
+**Status:** Experimental
+
+Kloak detects `libgnutls.so` in container processes and looks for `gnutls_record_send` and `gnutls_record_send2` symbols. Uprobe attachment is attempted, but the eBPF handler for GnuTLS is not yet implemented. Applications using GnuTLS (common in GNOME-based tools, `wget`, and some C/C++ applications) will have uprobes attached but secret rewriting will not occur.
+
+::: warning
+GnuTLS support is a work in progress. The shadow secret mechanism still works — your application will read `kloak:<UUID>` placeholders — but in-kernel rewriting is not yet active for GnuTLS connections.
+:::
+
 ## What Is NOT Supported
 
 ### Custom TLS Stacks
 
-Applications that implement their own TLS handshake and encryption (without using OpenSSL, BoringSSL, or Go's `crypto/tls`) are not supported. The eBPF uprobes have no known function to attach to.
+Applications that implement their own TLS handshake and encryption (without using OpenSSL, BoringSSL, Go's `crypto/tls`, or GnuTLS) are not supported. The eBPF uprobes have no known function to attach to.
 
 Examples of unsupported stacks:
 - **Java's built-in JSSE** (TLS is implemented in pure Java, not via native OpenSSL)
-- **GnuTLS** (different API: `gnutls_record_send` instead of `SSL_write`)
 - **mbedTLS** (different API: `mbedtls_ssl_write`)
 - **s2n-tls** (AWS's TLS library, different API)
 
@@ -169,5 +179,5 @@ If a Go binary is compiled with `-ldflags="-s -w"` (stripped symbols), the `cryp
 | Ruby | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Via system OpenSSL |
 | Rust | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | When using native-tls |
 | C/C++ | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Direct OpenSSL usage |
+| Any (GnuTLS) | GnuTLS | `gnutls_record_send` | -- | -- | Experimental — detection works, rewriting not yet active |
 | Java (JSSE) | JVM built-in | -- | -- | -- | Not supported |
-| Any (GnuTLS) | GnuTLS | -- | -- | -- | Not supported |
