@@ -36,7 +36,7 @@
                         <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
                     </svg>
                 </a>
-                <a href="#getting-started" class="btn btn-primary btn-sm nav-cta">Book a Demo</a>
+
                 <button class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">
                     <span></span>
                     <span></span>
@@ -71,7 +71,7 @@
                         and no sidecars are required.
                     </p>
                     <div class="hero-actions">
-                        <a href="#getting-started" class="btn btn-primary">
+                        <a href="/docs/getting-started/quick-start" class="btn btn-primary">
                             <span>Get Started</span>
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 stroke-width="2">
@@ -222,6 +222,21 @@
                         efficiency.
                     </p>
                 </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor"
+                            stroke-width="1.5">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
+                        </svg>
+                    </div>
+                    <h3 class="feature-title">Open Source</h3>
+                    <p class="feature-description">
+                        Fully open source under the Apache 2.0 License. Inspect the code, contribute, and build with
+                        confidence.
+                    </p>
+                </div>
             </div>
         </div>
     </section>
@@ -352,61 +367,6 @@
         </div>
     </section>
 
-    <!-- Book a Demo Section -->
-    <section class="getting-started" id="getting-started">
-        <img src="transparent-logo.svg" alt="" class="section-logo-bg logo-shift-left" aria-hidden="true">
-        <div class="container">
-            <div class="section-header">
-                <span class="section-tag">Book a Demo</span>
-                <h2 class="section-title">
-                    See
-                    <span
-                        style="display: inline-flex; align-items: center; gap: 0; font-weight: 800; letter-spacing: 0.05em; vertical-align: bottom;">
-                        <img src="transparent-logo.svg" alt="K" class="logo-icon">
-                        <span class="logo-text">LOAK</span>
-                    </span>
-                    in Action
-                </h2>
-                <p class="section-description">
-                    Schedule a personalized walkthrough of our agentless eBPF secret management platform.
-                </p>
-            </div>
-            <div class="demo-form-container">
-                <form id="demo-form" class="demo-form" action="https://formspree.io/f/xwvregdz" method="POST">
-                    <div id="form-status" class="form-status"
-                        style="display: none; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 500;">
-                    </div>
-                    <div class="form-group">
-                        <label for="name">Full Name</label>
-                        <input type="text" id="name" name="name" required placeholder="Jane Doe">
-                    </div>
-                    <div class="form-group">
-                        <label for="email">Work Email</label>
-                        <input type="email" id="email" name="email" required placeholder="jane@company.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="company">Company</label>
-                        <input type="text" id="company" name="company" required placeholder="Acme Corp">
-                    </div>
-                    <div class="form-group form-group-full">
-                        <label for="message">How can we help you?</label>
-                        <textarea id="message" name="message" rows="4"
-                            placeholder="Tell us about your current secret management challenges..."></textarea>
-                    </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn btn-primary btn-large btn-block">
-                            <span>Request Demo</span>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path d="M5 12h14M12 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </section>
-
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
@@ -416,6 +376,7 @@
                     <span class="logo-text">LOAK</span>
                 </div>
                 <p class="footer-tagline">
+                    Released under the <a href="https://github.com/spinningfactory/kloak/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Apache 2.0 License</a>
                 </p>
                 <p class="footer-copyright">
                     © 2026 Kloak. All rights reserved.
