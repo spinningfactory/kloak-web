@@ -1,0 +1,26 @@
+.dark {
+  --vp-c-bg: #0B0F19;
+  --vp-c-bg-alt: #111827;
+  --vp-c-bg-elv: #1E293B;
+  --vp-c-bg-soft: #1F2937;
+  --vp-nav-bg-color: #0B0F19;
+  --vp-sidebar-bg-color: #0B0F19;
+}
+
+.VPContent {
+  position: relative;
+}
+
+.VPContent::before {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(1.5);
+  width: 440px;
+  height: 440px;
+  background: url('/transparent-logo.svg') no-repeat center / contain;
+  opacity: 0.04;
+  pointer-events: none;
+  z-index: 0;
+}
