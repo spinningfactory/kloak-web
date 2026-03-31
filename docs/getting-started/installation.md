@@ -112,7 +112,7 @@ kubectl delete secrets -l getkloak.io/managed=true --all-namespaces
 ```
 
 ::: warning
-Removing Kloak while applications are running means pods will continue to see the shadow secret values (`kloak:<UUID>` placeholders) until they are restarted with the original secrets. Plan your rollback accordingly.
+Removing Kloak while applications are running means pods will continue to see the shadow secret values (`kloak:<ULID>` placeholders) until they are restarted with the original secrets. Plan your rollback accordingly.
 :::
 
 ## Next Steps

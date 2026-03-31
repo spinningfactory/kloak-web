@@ -112,7 +112,7 @@
                         </div>
                         <div class="terminal-body">
                             <pre><code><span class="term-comment"># Your app sends this header:</span>
-<span class="term-key">Authorization:</span> <span class="term-hash">kloak:a1b2c3d4-e5f6-7890</span>
+<span class="term-key">Authorization:</span> <span class="term-hash">kloak:MPZVR3GHWT4E6YBCA01JQXK5N8</span>
 
 <span class="term-comment"># Kloak transforms it to:</span>
 <span class="term-key">Authorization:</span> <span class="term-value">Bearer sk-live-xyz123...</span>
@@ -259,7 +259,7 @@
                         <h3 class="step-title">Register Your Secrets</h3>
                         <p class="step-description">
                             Label your Kubernetes secrets with <code>getkloak.io/enabled=true</code>. Kloak generates a
-                            unique hash (UUID) for each secret value.
+                            unique ULID placeholder for each secret value.
                         </p>
                         <div class="step-code">
                             <pre><code><span class="code-key">labels:</span>
@@ -278,7 +278,7 @@
                         </p>
                         <div class="step-code">
                             <pre><code><span class="code-key">headers:</span>
-  <span class="code-key">Authorization:</span> <span class="code-string">"kloak:a1b2c3d4-e5f6-7890"</span></code></pre>
+  <span class="code-key">Authorization:</span> <span class="code-string">"kloak:MPZVR3GHWT4E6YBCA01JQXK5N8"</span></code></pre>
                         </div>
                     </div>
                 </div>

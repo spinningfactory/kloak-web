@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Kloak is a Kubernetes-native secret protection system that uses eBPF to rewrite secret placeholders with real values inside the kernel, just before TLS encryption. Applications never see actual secrets -- they work with harmless UUID placeholders that are transparently substituted at the lowest possible level.
+Kloak is a Kubernetes-native secret protection system that uses eBPF to rewrite secret placeholders with real values inside the kernel, just before TLS encryption. Applications never see actual secrets -- they work with harmless ULID placeholders that are transparently substituted at the lowest possible level.
 
 ## Components
 
@@ -12,7 +12,7 @@ The controller runs as a **DaemonSet** -- one pod per node -- because eBPF progr
 
 It performs three functions:
 
-1. **SecretReconciler** -- Watches Kubernetes Secrets labeled `getkloak.io/enabled=true`. For each enabled secret, creates a shadow secret (`<name>-kloak`) containing length-matched `kloak:<UUID>` placeholders. Stores the UUID-to-real-value mappings with allowed host metadata.
+1. **SecretReconciler** -- Watches Kubernetes Secrets labeled `getkloak.io/enabled=true`. For each enabled secret, creates a shadow secret (`<name>-kloak`) containing length-matched `kloak:<ULID>` placeholders. Stores the ULID-to-real-value mappings with allowed host metadata.
 
 2. **Pod Reconciler** -- Watches Pods annotated `getkloak.io/enabled=true` on the local node. When a matching pod is detected, resolves the container's PID via cgroup, then delegates to the TLS Uprobe Manager.
 
@@ -60,8 +60,8 @@ sequenceDiagram
 
     User->>K8s: Create Secret (getkloak.io/enabled=true)
     K8s->>SR: Watch event
-    SR->>K8s: Create shadow secret<br/>(api-creds-kloak with kloak:UUID)
-    SR->>SR: Store UUID → real value mapping
+    SR->>K8s: Create shadow secret<br/>(api-creds-kloak with kloak:ULID)
+    SR->>SR: Store ULID → real value mapping
 
     User->>K8s: Create Pod (referencing api-creds)
     K8s->>WH: Admission webhook
@@ -69,11 +69,11 @@ sequenceDiagram
     WH->>K8s: Mutate: api-creds → api-creds-kloak
     K8s->>App: Pod starts with shadow secret mounted
 
-    App->>App: Read /etc/secrets/api-key<br/>Sees: kloak:a1b2c3d4-...
+    App->>App: Read /etc/secrets/api-key<br/>Sees: kloak:MPZVR3GH...
 
     Note over SR,eBPF: Controller syncs mapping to BPF map
 
-    App->>eBPF: SSL_write(buf containing kloak:UUID)
+    App->>eBPF: SSL_write(buf containing kloak:ULID)
     eBPF->>eBPF: Phase 1: Lookup 8-byte key
     eBPF->>eBPF: Phase 2: Verify prefix,<br/>check host filter,<br/>rewrite in-place
     eBPF->>Remote: TLS-encrypted data with real secret
@@ -149,19 +149,19 @@ Kloak's security model is built on a fundamental principle: **real secret values
 
 ### What the Application Sees
 
-The application mounts a shadow secret containing `kloak:<UUID>` placeholders. When it reads `/etc/secrets/api-key`, it gets something like `kloak:a1b2c3d4-e5f6-7890-abcd-ef1234567890`. This value is meaningless to an attacker -- it is a random UUID that changes with each secret reconciliation.
+The application mounts a shadow secret containing `kloak:<ULID>` placeholders. When it reads `/etc/secrets/api-key`, it gets something like `kloak:MPZVR3GHWT4E6YBCA01JQXK5N8`. This value is meaningless to an attacker -- it is a random ULID that changes with each secret reconciliation.
 
 ### Where Real Secrets Live
 
 Real secret values exist in exactly two places:
 
-1. **Controller process memory** -- The in-memory store maps UUIDs to real values. This runs in the privileged `kloak-system` namespace with restricted RBAC.
+1. **Controller process memory** -- The in-memory store maps ULIDs to real values. This runs in the privileged `kloak-system` namespace with restricted RBAC.
 
-2. **eBPF map (kernel memory)** -- The `secret_map` BPF hash map contains the UUID-to-real-value mappings. This is kernel memory, inaccessible to user-space processes (including the application container).
+2. **eBPF map (kernel memory)** -- The `secret_map` BPF hash map contains the ULID-to-real-value mappings. This is kernel memory, inaccessible to user-space processes (including the application container).
 
 ### The Rewrite Path
 
-When the application calls `SSL_write()` with a buffer containing `kloak:<UUID>`:
+When the application calls `SSL_write()` with a buffer containing `kloak:<ULID>`:
 
 1. The eBPF uprobe fires **before** the TLS library encrypts the data
 2. The program scans the write buffer, finds the `kloak:` prefix
@@ -178,7 +178,7 @@ The eBPF program enforces host filtering at the kernel level. Even if an attacke
 - They cannot read the real secret from memory (it was never there)
 - They cannot modify the BPF map (requires `CAP_BPF` + `CAP_SYS_ADMIN`, only the controller has these)
 - They cannot send the secret to an unauthorized host (the eBPF program checks the destination before rewriting)
-- They could attempt to call `SSL_write` with a known `kloak:` UUID to a different host, but host filtering blocks the rewrite
+- They could attempt to call `SSL_write` with a known `kloak:` ULID to a different host, but host filtering blocks the rewrite
 
 ### Privileged Access Requirements
 
@@ -201,7 +201,7 @@ The controller runs as a privileged DaemonSet. Restrict access to the `kloak-sys
 
 | Map | Type | Key | Value | Purpose |
 |---|---|---|---|---|
-| `secret_map` | Hash | 8-byte prefix (`kloak:XX`) | Real value (128B) + host (32B) + full prefix (42B) | UUID-to-secret lookup |
+| `secret_map` | Hash | 8-byte prefix (`kloak:XX`) | Real value (128B) + host (32B) + full prefix (42B) | ULID-to-secret lookup |
 | `dns_ip_map` | LRU Hash | IP address (16B) | Hostname (32B) + TTL + timestamp | DNS response → IP-to-hostname cache |
 | `conn_ip_map` | Hash | {tgid, fd} | IP address (16B) | TCP connection → destination IP |
 | `last_verified_fd` | Hash | tgid | fd | Last fd whose IP matched a DNS-verified host |

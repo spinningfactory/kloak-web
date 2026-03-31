@@ -68,7 +68,7 @@ stringData:
   token: "my-real-token-value"
 ```
 
-When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with UUID placeholders length-matched to each key's value.
+When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with ULID placeholders length-matched to each key's value.
 
 ### Namespace Enablement
 
@@ -131,7 +131,7 @@ labels:
   getkloak.io/hosts: "api.example.com,cdn.example.com"    # Multiple hosts
 ```
 
-When a TLS write is intercepted, the eBPF program resolves the destination hostname via the DNS-verified trust chain (DNS capture → connection tracking → host resolution). If the resolved hostname does not match the allowed hosts list, the placeholder is **not** replaced -- the remote server receives the harmless `kloak:...` UUID. See the [Host Filtering guide](/guides/host-filtering) for details.
+When a TLS write is intercepted, the eBPF program resolves the destination hostname via the DNS-verified trust chain (DNS capture → connection tracking → host resolution). If the resolved hostname does not match the allowed hosts list, the placeholder is **not** replaced -- the remote server receives the harmless `kloak:...` ULID. See the [Host Filtering guide](/guides/host-filtering) for details.
 
 Omitting `getkloak.io/hosts` allows the secret to be sent to any destination.
 

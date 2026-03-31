@@ -1,16 +1,16 @@
 # Protecting Secrets with Kloak
 
-This guide walks you through protecting your first Kubernetes Secret with Kloak. By the end, your application will never see actual secret values -- it will only see harmless `kloak:<UUID>` placeholders that get replaced with real values in-kernel by eBPF, just before TLS transmission.
+This guide walks you through protecting your first Kubernetes Secret with Kloak. By the end, your application will never see actual secret values -- it will only see harmless `kloak:<ULID>` placeholders that get replaced with real values in-kernel by eBPF, just before TLS transmission.
 
 ## How It Works
 
 When you label a Secret with `getkloak.io/enabled=true`, Kloak's SecretReconciler automatically:
 
-1. Creates a **shadow secret** named `<original>-kloak` containing `kloak:<UUID>` placeholder values
+1. Creates a **shadow secret** named `<original>-kloak` containing `kloak:<ULID>` placeholder values
 2. Length-matches each placeholder to the original value (padding or truncating as needed)
-3. Stores the UUID-to-real-value mapping in an in-memory store synced to the eBPF map
+3. Stores the ULID-to-real-value mapping in an in-memory store synced to the eBPF map
 
-Your application mounts and reads the shadow secret -- it only ever sees the UUID placeholders. When the application writes data over TLS, the eBPF uprobe intercepts the write, scans for known `kloak:` prefixes, and rewrites them with the real secret values before the encrypted payload leaves the kernel.
+Your application mounts and reads the shadow secret -- it only ever sees the ULID placeholders. When the application writes data over TLS, the eBPF uprobe intercepts the write, scans for known `kloak:` prefixes, and rewrites them with the real secret values before the encrypted payload leaves the kernel.
 
 ## Step 1: Label Your Secret
 
@@ -48,7 +48,7 @@ Inspect the shadow secret to see the placeholder:
 
 ```bash
 $ kubectl get secret api-credentials-kloak -n my-app -o jsonpath='{.data.api-key}' | base64 -d
-kloak:a1b2c3d4-e5f6-7890-abcd-ef1234567890
+kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 ```
 
 ::: tip
@@ -56,7 +56,7 @@ The shadow secret has an `OwnerReference` pointing to the original. If you delet
 :::
 
 ::: warning
-Secret values must be at least 8 bytes long (the length of `kloak:` plus 2 UUID characters). Shorter values cannot be reliably intercepted by the eBPF program.
+Secret values must be at least 8 bytes long (the length of `kloak:` plus 2 ULID characters). Shorter values cannot be reliably intercepted by the eBPF program.
 :::
 
 ## Step 2: Enable Kloak on Your Pod
@@ -203,7 +203,7 @@ kubectl logs -l app=curl-test -n my-app
 You should see output like:
 
 ```
-App sees: kloak:a1b2c3d4-e5f6-7890-abcd-ef1234567890
+App sees: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 ---
 {
   "headers": {
@@ -214,10 +214,10 @@ App sees: kloak:a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ---
 ```
 
-The application reads `kloak:a1b2c3d4-...` from the mounted secret, but httpbin.org receives `sk-live-key-1234567890` -- the real value was substituted in-kernel by the eBPF uprobe before TLS encryption.
+The application reads `kloak:MPZVR3GH...` from the mounted secret, but httpbin.org receives `sk-live-key-1234567890` -- the real value was substituted in-kernel by the eBPF uprobe before TLS encryption.
 
 ::: danger
-If you see the `kloak:` UUID in the httpbin response, the eBPF rewrite did not trigger. Common causes:
+If you see the `kloak:` ULID in the httpbin response, the eBPF rewrite did not trigger. Common causes:
 - The controller pod is not running or not ready on the node
 - The eBPF map has not synced yet (wait 10-15 seconds after pod startup)
 - The secret value is shorter than 8 bytes
@@ -232,14 +232,14 @@ Here is the complete lifecycle of a protected secret:
 1. You create Secret with getkloak.io/enabled=true
    │
 2. SecretReconciler creates shadow secret (api-credentials-kloak)
-   │  Each value: "kloak:<UUID>" padded to match original length
-   │  Mapping stored: UUID → real value + allowed hosts
+   │  Each value: "kloak:<ULID>" padded to match original length
+   │  Mapping stored: ULID → real value + allowed hosts
    │
 3. Pod is created referencing the original secret
    │
 4. Webhook intercepts admission, rewrites volume: api-credentials → api-credentials-kloak
    │
-5. Pod starts, reads shadow secret → sees "kloak:a1b2c3d4-..."
+5. Pod starts, reads shadow secret → sees "kloak:MPZVR3GH..."
    │
 6. Controller detects pod, finds PID via cgroup, attaches eBPF uprobes
    │
@@ -258,15 +258,15 @@ Here is the complete lifecycle of a protected secret:
 When you update the original secret, Kloak automatically:
 
 1. Detects the change via the SecretReconciler watch
-2. Reuses existing UUIDs where possible (to keep shadow values stable)
-3. Generates new UUIDs for new keys or length-changed values
+2. Reuses existing ULIDs where possible (to keep shadow values stable)
+3. Generates new ULIDs for new keys or length-changed values
 4. Updates the shadow secret and the in-memory storage
 5. Syncs the new mappings to the eBPF map (within 5 seconds)
 
 No pod restart is required -- the eBPF map is updated live.
 
 ::: tip
-Shadow secrets preserve UUIDs across updates when the value length stays the same. This means your application does not see a "change" in the mounted file unless a key is added, removed, or its length changes.
+Shadow secrets preserve ULIDs across updates when the value length stays the same. This means your application does not see a "change" in the mounted file unless a key is added, removed, or its length changes.
 :::
 
 ## Cleaning Up

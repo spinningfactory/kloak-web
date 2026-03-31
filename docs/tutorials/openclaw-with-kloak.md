@@ -10,15 +10,15 @@ OpenClaw Pod                          LLM Providers
 | Gateway Container       |
 |                         |     TLS write          +------------------+
 | ANTHROPIC_API_KEY=      |  ------------------>   | api.anthropic.com|
-|   kloak:a1b2c3d4-...   |  eBPF rewrites with    | (real key sent)  |
+|   kloak:MPZVR3GH...   |  eBPF rewrites with    | (real key sent)  |
 |                         |  real key in-kernel     +------------------+
 | OPENAI_API_KEY=         |  ------------------>   +------------------+
-|   kloak:e5f6a7b8-...   |                        | api.openai.com   |
+|   kloak:QN4FX8KJ...   |                        | api.openai.com   |
 |                         |                        | (real key sent)  |
 +-------------------------+                        +------------------+
 ```
 
-Your OpenClaw gateway reads `kloak:<UUID>` placeholders from its environment. When it makes API calls to Anthropic, OpenAI, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
+Your OpenClaw gateway reads `kloak:<ULID>` placeholders from its environment. When it makes API calls to Anthropic, OpenAI, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
 
 ## Prerequisites
 
@@ -138,7 +138,7 @@ openclaw-gateway-token           Opaque   1      5s
 openclaw-gateway-token-kloak     Opaque   1      5s
 ```
 
-Each `-kloak` shadow secret contains a `kloak:<UUID>` placeholder that matches the byte length of your real key.
+Each `-kloak` shadow secret contains a `kloak:<ULID>` placeholder that matches the byte length of your real key.
 
 ## Step 3: Create the OpenClaw ConfigMap
 
@@ -356,13 +356,13 @@ kubectl exec -n openclaw deploy/openclaw -- env | grep -E "API_KEY|GATEWAY_TOKEN
 ```
 
 ```
-ANTHROPIC_API_KEY=kloak:a1b2c3d4-e5f6-7890-abcd-ef1234567890
-OPENAI_API_KEY=kloak:b2c3d4e5-f6a7-8901-bcde-f12345678901
-GEMINI_API_KEY=kloak:c3d4e5f6-a7b8-9012-cdef-123456789012
-OPENCLAW_GATEWAY_TOKEN=kloak:d4e5f6a7-b8c9-0123-defa-234567890123
+ANTHROPIC_API_KEY=kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
+OPENAI_API_KEY=kloak:QN4FX8KJBR7YWSE201JQXK6P9
+GEMINI_API_KEY=kloak:TH5GA9DMCS8ZXRF301JQXK7Q0
+OPENCLAW_GATEWAY_TOKEN=kloak:VJ6HB0ENDT9AYSG401JQXK8R1
 ```
 
-The application only sees `kloak:<UUID>` placeholders -- the real keys are never in process memory.
+The application only sees `kloak:<ULID>` placeholders -- the real keys are never in process memory.
 
 ### Check Controller Logs
 
@@ -389,7 +389,7 @@ curl -s http://localhost:18789/api/v1/chat \
   -d '{"message": "Say hello in one sentence.", "model": "claude-sonnet-4-20250514"}' | jq .
 ```
 
-If you get a successful response from Claude, Kloak is working -- the `kloak:<UUID>` placeholder was transparently replaced with your real Anthropic API key at the eBPF level before TLS encryption.
+If you get a successful response from Claude, Kloak is working -- the `kloak:<ULID>` placeholder was transparently replaced with your real Anthropic API key at the eBPF level before TLS encryption.
 
 ## How Host Filtering Protects You
 
@@ -407,7 +407,7 @@ The security power of this setup comes from per-secret host filtering. Here is w
 1. The attacker triggers a request to `evil.attacker.com` carrying the Anthropic key placeholder
 2. Kloak's eBPF program resolves the destination via the DNS-verified trust chain
 3. `evil.attacker.com` does not match `api.anthropic.com`
-4. The placeholder is **not** rewritten -- the attacker receives `kloak:a1b2c3d4-...` (useless)
+4. The placeholder is **not** rewritten -- the attacker receives `kloak:MPZVR3GH...` (useless)
 
 ## Troubleshooting
 
