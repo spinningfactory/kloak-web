@@ -12,7 +12,7 @@ export default defineConfig({
 
   themeConfig: {
     logo: '/transparent-logo.svg',
-    siteTitle: 'Kloak Docs',
+    siteTitle: 'loak Docs',
 
     nav: [
       { text: 'Getting Started', link: '/getting-started/quick-start' },

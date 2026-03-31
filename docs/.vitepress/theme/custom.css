@@ -1,3 +1,9 @@
+.VPNavBarTitle .logo {
+  width: 28px;
+  height: 28px;
+  margin-right: -2px;
+}
+
 .dark {
   --vp-c-bg: #0B0F19;
   --vp-c-bg-alt: #111827;
