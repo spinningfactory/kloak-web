@@ -64,12 +64,7 @@ export default defineConfig({
       { icon: 'github', link: 'https://github.com/spinningfactory/kloak' },
     ],
 
-    editLink: {
-      pattern: 'https://github.com/spinningfactory/kloak/edit/main/website/docs/:path',
-      text: 'Edit this page on GitHub',
-    },
-
-    footer: {
+footer: {
       message: 'Released under the Apache 2.0 License.',
       copyright: 'Copyright 2025-present Kloak Contributors',
     },
