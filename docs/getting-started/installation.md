@@ -22,7 +22,7 @@ The output should show `5.17` or higher (e.g., `6.1.0-18-amd64`).
 :::
 
 ::: warning eBPF requires privileged access
-The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`, and `CAP_SYS_RESOURCE`. This is required to load eBPF programs and attach uprobes to container processes. Review the [RBAC manifests](https://github.com/getkloak/kloak/blob/main/config/manifests/rbac.yaml) to understand the exact permissions granted.
+The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`, and `CAP_SYS_RESOURCE`. This is required to load eBPF programs and attach uprobes to container processes. Review the [RBAC manifests](https://github.com/spinningfactory/kloak/blob/main/config/manifests/rbac.yaml) to understand the exact permissions granted.
 :::
 
 ## Deploy with Kustomize
@@ -30,7 +30,7 @@ The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADM
 Kloak ships with production-ready Kustomize overlays. Deploy the entire stack (namespace, RBAC, controller DaemonSet, webhook Deployment) in a single command:
 
 ```bash
-kubectl apply -k https://github.com/getkloak/kloak/config/overlays/prod
+kubectl apply -k https://github.com/spinningfactory/kloak/config/overlays/prod
 ```
 
 This creates the `kloak-system` namespace and deploys two components:
@@ -83,7 +83,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - https://github.com/getkloak/kloak/config/overlays/prod
+  - https://github.com/spinningfactory/kloak/config/overlays/prod
 
 images:
   - name: ghcr.io/your-org/kloak
@@ -102,7 +102,7 @@ kubectl apply -k my-overlay/
 To remove Kloak and all its resources from your cluster:
 
 ```bash
-kubectl delete -k https://github.com/getkloak/kloak/config/overlays/prod
+kubectl delete -k https://github.com/spinningfactory/kloak/config/overlays/prod
 ```
 
 This removes the controller, webhook, RBAC roles, and the `kloak-system` namespace. Shadow secrets created by Kloak in application namespaces are **not** automatically deleted. To clean those up:

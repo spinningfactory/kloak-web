@@ -10,7 +10,7 @@ hero:
       link: /getting-started/quick-start
     - theme: alt
       text: View on GitHub
-      link: https://github.com/getkloak/kloak
+      link: https://github.com/spinningfactory/kloak
 
 features:
   - title: Zero Code Changes
