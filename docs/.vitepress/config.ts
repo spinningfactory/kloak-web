@@ -15,7 +15,7 @@ export default defineConfig({
     siteTitle: 'LOAK Docs',
 
     nav: [
-      { text: 'Getting Started', link: '/getting-started/quick-start' },
+      { text: 'Getting Started', link: '/getting-started/installation' },
       { text: 'Guides', link: '/guides/protecting-secrets' },
       { text: 'Tutorials', link: '/tutorials/openclaw-with-kloak' },
       { text: 'Architecture', link: '/architecture/overview' },
@@ -26,9 +26,9 @@ export default defineConfig({
       {
         text: 'Getting Started',
         items: [
-          { text: 'Quick Start', link: '/getting-started/quick-start' },
           { text: 'Installation', link: '/getting-started/installation' },
           { text: 'Configuration', link: '/getting-started/configuration' },
+          { text: 'Quick Start', link: '/getting-started/quick-start' },
         ],
       },
       {
