@@ -7,7 +7,7 @@ hero:
   actions:
     - theme: brand
       text: Get Started
-      link: /getting-started/quick-start
+      link: /getting-started/installation
     - theme: alt
       text: View on GitHub
       link: https://github.com/spinningfactory/kloak
