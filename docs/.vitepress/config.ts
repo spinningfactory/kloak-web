@@ -49,6 +49,7 @@ export default defineConfig({
         text: 'Architecture',
         items: [
           { text: 'Overview', link: '/architecture/overview' },
+          { text: 'Security Model', link: '/architecture/security-model' },
         ],
       },
       {
