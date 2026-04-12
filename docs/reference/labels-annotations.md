@@ -8,9 +8,9 @@ Kloak uses Kubernetes labels and annotations to control which secrets are protec
 |---|---|---|---|
 | `getkloak.io/enabled` | Label | Secret | Enables Kloak protection for this secret. Triggers shadow secret creation. |
 | `getkloak.io/enabled` | Annotation | Secret | Alternative to label. Enables Kloak protection for this secret. |
-| `getkloak.io/enabled` | Annotation | Pod | Enables eBPF uprobe attachment for this pod. Set explicitly or injected by webhook. |
-| `getkloak.io/enabled` | Label | Namespace | Enables Kloak for all pods in this namespace. The webhook only processes pods in labeled namespaces. |
-| `getkloak.io/enabled` | Label or Annotation | Deployment, DaemonSet, StatefulSet | Enables Kloak for all pods owned by this workload. |
+| `getkloak.io/enabled` | Label | Pod | Enables Kloak for this pod. The webhook's `objectSelector` matches pods with this label. |
+| `getkloak.io/enabled` | Annotation | Pod | Injected by the webhook on mutated pods. Read by the controller to attach eBPF uprobes. Do not set manually. |
+| `getkloak.io/enabled` | Label | Namespace | Enables Kloak for all pods in this namespace. The webhook's `namespaceSelector` matches namespaces with this label. |
 | `getkloak.io/hosts` | Label | Secret | Comma-separated list of allowed TLS destination hostnames. |
 | `getkloak.io/port` | Label | Secret | Allowed destination port for secret transmission (e.g., `443`). If omitted, all ports are allowed. |
 | `getkloak.io/managed` | Label | Secret (shadow) | Automatically set by Kloak on shadow secrets. Do not set manually. |
@@ -54,29 +54,30 @@ kubectl label secret my-api-key getkloak.io/enabled- -n my-namespace
 
 The shadow secret will be automatically deleted and storage mappings cleaned up.
 
-#### On Pods (Annotation)
+#### On Pods (Label)
 
-When set on a Pod, the controller's Pod Reconciler:
+When set as a **label** on a Pod (typically via the pod template in a Deployment/StatefulSet/DaemonSet), the webhook's `objectSelector` matches the pod and processes it:
 
-1. Detects the pod on the local node
-2. Resolves the container PID via cgroup
-3. Attaches eBPF TLS uprobes to the process
+1. Rewrites Secret volume references to point to shadow secrets
+2. Injects the `getkloak.io/enabled` annotation (read by the controller)
+3. Rejects the pod if any shadow secret is missing (fail-closed)
 
 ```yaml
 metadata:
-  annotations:
+  labels:
     getkloak.io/enabled: "true"
 ```
 
 ::: warning
-You typically do not need to set this annotation manually. The webhook automatically injects it when it mutates a pod. Set it explicitly only if you want to bypass the webhook's enablement check logic.
+Pod enablement requires a **label**, not an annotation. The webhook uses Kubernetes `objectSelector` to match pods, which only works with labels.
 :::
 
 #### On Namespaces (Label)
 
 When set on a Namespace, two things happen:
 
-1. **Enablement inheritance:** All pods created in this namespace are treated as Kloak-enabled, even without an explicit pod annotation. The webhook checks the namespace label as a fallback.
+1. **Webhook scope:** The `MutatingWebhookConfiguration` has a `namespaceSelector` that matches namespaces with this label. All pods created in this namespace are sent to the webhook.
+2. **Enablement inheritance:** All pods in this namespace are treated as Kloak-enabled, even without an explicit pod label.
 
 ```bash
 kubectl label namespace my-app getkloak.io/enabled=true
@@ -85,25 +86,6 @@ kubectl label namespace my-app getkloak.io/enabled=true
 ::: danger
 Labeling a namespace enables Kloak for **every** pod in that namespace. Make sure all applications in the namespace are compatible (see [Supported Runtimes](../guides/supported-runtimes.md)). Pods using unsupported TLS stacks will fail to have uprobes attached, which is logged as an error but does not block the pod.
 :::
-
-#### On Workloads (Label or Annotation)
-
-When set on a Deployment, DaemonSet, or StatefulSet, the webhook follows the owner reference chain to determine enablement:
-
-```
-Pod → ReplicaSet → Deployment    (label or annotation checked at each level)
-Pod → DaemonSet                  (label or annotation checked)
-Pod → StatefulSet                (label or annotation checked)
-```
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  labels:
-    getkloak.io/enabled: "true"  # All pods from this Deployment get Kloak
-```
 
 ### `getkloak.io/hosts`
 
@@ -198,23 +180,23 @@ This label is informational and used for operational visibility (e.g., listing w
 
 The webhook checks for enablement in the following order. The first match wins:
 
-1. **Pod annotation** `getkloak.io/enabled: "true"` -- most specific
+1. **Pod label** `getkloak.io/enabled: "true"` -- most specific
 2. **Namespace label** `getkloak.io/enabled: "true"` -- applies to all pods in namespace
-3. **Owner workload** label or annotation -- follows ReplicaSet -> Deployment chain
-4. If none match, the pod is **not** processed by Kloak
+3. If neither matches, the pod is **not** processed by Kloak
 
 ```
-Pod annotation?  ──yes──▶  Enabled
+Pod label?       ──yes──▶  Enabled
        │ no
        ▼
 Namespace label? ──yes──▶  Enabled
        │ no
        ▼
-Owner workload?  ──yes──▶  Enabled
-       │ no
-       ▼
                            Not enabled
 ```
+
+::: tip
+Workload-level inheritance (Deployment, DaemonSet, StatefulSet labels) is not supported. Use pod template labels or namespace labels instead.
+:::
 
 ## Quick Reference
 
@@ -240,7 +222,7 @@ kubectl label secret my-secret getkloak.io/enabled- -n my-namespace
 
 ### Check if a pod was mutated:
 ```bash
-kubectl get pod <pod-name> -n my-namespace -o jsonpath='{.metadata.annotations.getkloak\.io/enabled}'
+kubectl get pod <pod-name> -n my-namespace -o jsonpath='{.metadata.labels.getkloak\.io/enabled}'
 ```
 
 ### List all shadow secrets:

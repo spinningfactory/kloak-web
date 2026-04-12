@@ -213,7 +213,6 @@ spec:
     metadata:
       labels:
         app: openclaw
-      annotations:
         getkloak.io/enabled: "true"
     spec:
       initContainers:

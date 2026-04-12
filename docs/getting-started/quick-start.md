@@ -29,7 +29,7 @@ kubectl create namespace kloak-demo
 ```
 
 ::: tip Enablement model
-Kloak uses a layered opt-in model. The webhook fires for all non-system namespaces, but only mutates pods that are explicitly enabled via pod annotations, namespace labels, or owner workload labels. In this guide, we use a pod annotation in Step 3 to enable Kloak.
+Kloak uses a layered opt-in model. The webhook only processes pods that are explicitly enabled via pod labels or namespace labels. In this guide, we use a pod label in Step 3 to enable Kloak.
 :::
 
 ## Step 2: Create a Secret
@@ -101,7 +101,6 @@ spec:
     metadata:
       labels:
         app: demo-app
-      annotations:
         getkloak.io/enabled: "true"
     spec:
       containers:

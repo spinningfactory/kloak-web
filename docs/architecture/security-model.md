@@ -122,8 +122,9 @@ Kloak is designed to **fail secure** -- if any component fails, the application 
 
 | Failure | Impact |
 |---|---|
-| Controller down | New pods are not mutated (if webhook also down) or mount shadow secrets but uprobes not attached. Existing pods with attached uprobes continue working. |
-| Webhook down | New pods mount original secrets (no mutation). failurePolicy: Fail blocks pod creation by default. |
+| Controller down | Shadow secrets may not be created yet. The webhook rejects pods referencing kloak-enabled secrets without a shadow (fail-closed). Existing pods with attached uprobes continue working. |
+| Webhook down | Only affects kloak-enabled namespaces and pods (via selectors). Non-kloak workloads are unaffected. failurePolicy: Fail blocks kloak-enabled pod creation. |
+| Shadow secret missing | Webhook rejects the pod to prevent real secrets from being mounted. Pod creation succeeds once the controller creates the shadow. |
 | Uprobe attachment fails | Application sends `kloak:<ULID>` placeholder to the remote server. Request fails at the API level (invalid credential). |
 | H extraction fails | XOR-patch path unavailable. Go plaintext path used as fallback for Go apps. OpenSSL apps send placeholder. |
 | DNS resolution missing | Host cannot be verified. eBPF program does not rewrite -- placeholder sent. |
