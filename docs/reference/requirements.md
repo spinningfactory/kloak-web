@@ -61,16 +61,22 @@ The Kloak controller service account requires the following cluster-level permis
 ```yaml
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "watch", "create", "update", "delete"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["namespaces"]
   verbs: ["get", "list", "watch"]
-- apiGroups: ["admissionregistration.k8s.io"]
-  resources: ["mutatingwebhookconfigurations"]
-  verbs: ["get", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "deployments", "daemonsets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
 ```
 
 ## Supported Linux Distributions
@@ -187,7 +193,7 @@ kubectl get nodes -o wide  # Check KERNEL-VERSION column
 | Resource | Size | Notes |
 |---|---|---|
 | BPF map: `secret_map` | Scales with number of secrets | ~212 bytes per entry (8B key + 204B value) |
-| BPF map: `dns_ip_map` | Scales with resolved DNS entries | LRU, max 1024 entries |
+| BPF map: `dns_ip_map` | Scales with resolved DNS entries | LRU, max 8192 entries |
 | BPF map: `conn_ip_map` | Scales with active TCP connections | ~24 bytes per entry |
 | BPF map: `watched_hosts` | Scales with unique host filters | ~36 bytes per entry |
 | Ring buffer: `tls_events` | Fixed size (configurable) | Default 256KB |

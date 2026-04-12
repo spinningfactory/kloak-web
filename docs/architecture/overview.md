@@ -201,10 +201,10 @@ The controller runs as a privileged DaemonSet. Restrict access to the `kloak-sys
 
 | Map | Type | Key | Value | Purpose |
 |---|---|---|---|---|
-| `secret_map` | Hash | 8-byte prefix (`kloak:XX`) | Real value (128B) + host (32B) + full prefix (42B) | ULID-to-secret lookup |
-| `dns_ip_map` | LRU Hash | IP address (16B) | Hostname (32B) + TTL + timestamp | DNS response → IP-to-hostname cache |
-| `conn_ip_map` | Hash | {tgid, fd} | IP address (16B) | TCP connection → destination IP |
+| `secret_map` | Hash | 8-byte prefix (`kloak:XX`) | Real value (128B) + host (64B) + port + protocol + full prefix (42B) | ULID-to-secret lookup |
+| `dns_ip_map` | LRU Hash | IP address (16B) | Hostname (64B) + TTL + timestamp | DNS response → IP-to-hostname cache |
+| `conn_ip_map` | LRU Hash | {tgid, fd} | IP address (16B) + port | TCP connection → destination IP |
 | `last_verified_fd` | Hash | tgid | fd | Last fd whose IP matched a DNS-verified host |
-| `watched_hosts` | Hash | Hostname (32B) | 1 | Set of hostnames to capture DNS for |
-| `prog_array` | ProgArray | Index 0 | Phase 2 program FD | Tail call from Phase 1 to Phase 2 |
+| `watched_hosts` | Hash | Hostname (64B) | 1 | Set of hostnames to capture DNS for |
+| `prog_array` | ProgArray | Index 1-3 | Program FDs | Tail calls: 1=XOR patch, 2=H extract, 3=Go write path |
 | `tls_events` | RingBuf | -- | Event struct (pid, len, is_rewritten) | Observability: rewrite events |

@@ -143,10 +143,10 @@ Kloak scans `/proc/<pid>/maps` for any library matching `libssl.so*`, `libboring
 
 **Status:** Experimental
 
-Kloak detects `libgnutls.so` in container processes and looks for `gnutls_record_send` and `gnutls_record_send2` symbols. Uprobe attachment is attempted, but the eBPF handler for GnuTLS is not yet implemented. Applications using GnuTLS (common in GNOME-based tools, `wget`, and some C/C++ applications) will have uprobes attached but secret rewriting will not occur.
+Kloak detects `libgnutls.so` in container processes and looks for `gnutls_record_send` and `gnutls_record_send2` symbols. Uprobes are attached using the same eBPF handler as OpenSSL (`SSL_write`), since the function signatures are compatible (context, buffer, length). Basic plaintext secret rewriting works through this shared handler.
 
 ::: warning
-GnuTLS support is a work in progress. The shadow secret mechanism still works — your application will read `kloak:<ULID>` placeholders — but in-kernel rewriting is not yet active for GnuTLS connections.
+GnuTLS support is experimental. The uprobe attachment and plaintext rewriting path are shared with OpenSSL, but GnuTLS has not been extensively tested across all configurations. The XOR-patch (ciphertext patching) path does not support GnuTLS struct offsets.
 :::
 
 ## What Is NOT Supported
@@ -179,5 +179,5 @@ If a Go binary is compiled with `-ldflags="-s -w"` (stripped symbols), the `cryp
 | Ruby | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Via system OpenSSL |
 | Rust | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | When using native-tls |
 | C/C++ | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Direct OpenSSL usage |
-| Any (GnuTLS) | GnuTLS | `gnutls_record_send` | -- | -- | Experimental — detection works, rewriting not yet active |
+| Any (GnuTLS) | GnuTLS | `gnutls_record_send` | DNS-verified | Yes | Experimental — shared handler with OpenSSL, not extensively tested |
 | Java (JSSE) | JVM built-in | -- | -- | -- | Not supported |

@@ -11,6 +11,7 @@ The controller runs as a DaemonSet on every node. It manages secret reconciliati
 | `--health-probe-bind-address` | `:8081` | Address for health (`/healthz`) and readiness (`/readyz`) probe endpoints. |
 | `--enable-ebpf` | `false` | Enable eBPF TLS uprobe loading and attachment. Requires Linux with `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_SYS_ADMIN`, and `CAP_SYS_RESOURCE`. |
 | `--cgroup-path` | `/sys/fs/cgroup` | Path to the cgroup v2 filesystem. When running in a container with a host mount, this is typically `/host/sys/fs/cgroup`. |
+| `--trusted-dns-servers` | *(empty)* | Comma-separated list of trusted DNS server IPs. Only DNS responses from these IPs are used for host filtering. If empty, auto-discovers `kube-dns` cluster IP at startup. |
 
 ### Environment Variables
 

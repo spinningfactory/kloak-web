@@ -205,7 +205,7 @@ You should see the allowed secret replaced with the real value and the blocked s
 
 - **Host verification is DNS-based.** The trust chain depends on the integrity of DNS responses. DNS spoofing could potentially trick the host filter. Use DNSSEC or trusted DNS resolvers to mitigate this.
 - **DNS entries have TTL enforcement.** Expired entries are skipped, forcing re-verification through fresh DNS responses. This limits the window for stale IP → hostname mappings.
-- **Hostname length is limited to 32 bytes** in the BPF map. Hostnames longer than 32 characters are truncated. This covers the vast majority of real-world API endpoints.
+- **Hostname length is limited to 64 bytes** in the BPF map. Hostnames longer than 64 characters are truncated. This covers the vast majority of real-world API endpoints.
 - **Wildcard matching is not supported.** You must specify exact hostnames. `*.stripe.com` will not work -- use `api.stripe.com` explicitly.
 - **Host filtering is enforced in-kernel by eBPF.** Application code cannot bypass it, even with arbitrary code execution in the container.
 - **DNS and connection tracking are global** on the node. All DNS responses and TCP connections are monitored (filtered by `watched_hosts` for DNS). This is necessary for containerized environments where DNS proxies may handle resolution in a different process context.
