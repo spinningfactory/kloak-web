@@ -117,40 +117,16 @@ Kloak is designed to **fail secure** -- if any component fails, the application 
 
 ### Secret Size
 
-The maximum secret value that can be rewritten is **128 bytes** (`SECRET_MAX_LEN`). Secrets longer than 128 bytes are truncated in the BPF map. This covers most API keys, tokens, and passwords, but not large certificates or multi-line secrets.
+The maximum secret value that can be rewritten is **128 bytes** (`SECRET_MAX_LEN`). Secrets longer than 128 bytes are truncated in the BPF map. This limit exists to stay within eBPF program memory and verification constraints. It covers most API keys, tokens, and passwords, but not large certificates or multi-line secrets.
 
 ### Secrets Per TLS Write
 
-The eBPF program can detect and rewrite up to **4 secrets per `SSL_write` call** (`XOR_MAX_MATCHES`). If a single TLS write buffer contains more than 4 `kloak:` placeholders, only the first 4 are rewritten.
+The eBPF program can detect and rewrite up to **4 secrets per `SSL_write` call** (`XOR_MAX_MATCHES`). If a single TLS write buffer contains more than 4 `kloak:` placeholders, only the first 4 are rewritten. This limit exists to stay within eBPF program complexity and verification constraints.
 
 ### Hostname Length
 
-Hostnames for host filtering are limited to **64 characters** (`MAX_HOST_LEN`). Hostnames longer than 64 characters are truncated. This covers the vast majority of real-world API endpoints.
-
-### Single Host Per Secret
-
-Currently, only the **first hostname** in a comma-separated `getkloak.io/hosts` list is enforced in the BPF map. This is due to the single `allowed_host` field in the BPF value struct. Support for multiple hosts per secret entry is planned.
+Hostnames for host filtering are limited to **64 characters** (`MAX_HOST_LEN`). Hostnames longer than 64 characters are truncated. This limit exists to keep BPF map entries within eBPF memory constraints. It covers the vast majority of real-world API endpoints.
 
 ### OpenSSL Version Coverage
 
 The XOR-patch path requires version-specific struct offsets for extracting the GHASH key. Currently supported: **OpenSSL 3.2 -- 3.5**. OpenSSL 3.0/3.1 use a different struct layout (3-hop vs 4-hop chain) and are not yet supported. See [Supported Runtimes](/guides/supported-runtimes) for details.
-
-### Go Version Coverage
-
-Go `crypto/tls` struct offsets are currently calibrated for **Go 1.25+**. Older Go versions have different struct layouts. The controller attempts DWARF-based detection first and falls back to a version table.
-
-### Connection Pooling
-
-When HTTP clients reuse TLS connections (e.g., Go's `http.Transport`, Python's `requests.Session`), the DNS-verified host is cached on first successful resolution. Subsequent writes on the same connection use the cached hostname. If DNS changes between requests on a pooled connection, the old hostname remains in effect until the connection is closed.
-
-### DNS-Only Host Resolution
-
-Host filtering relies on DNS resolution. If an application connects directly to an IP address (bypassing DNS), the connection will not have a DNS-verified hostname and the eBPF program will not rewrite secrets for that connection.
-
-### No Wildcard Host Matching
-
-Host filtering requires exact hostname matches. Wildcard patterns like `*.stripe.com` are not supported. Each allowed hostname must be specified explicitly (e.g., `api.stripe.com`).
-
-### Per-Node Secret Sync
-
-The controller syncs secrets to BPF maps every 5 seconds. After a secret is created or updated, there is a window of up to 5 seconds where the BPF map may contain stale data. During this window, the old secret value (or no value) is used for rewriting.

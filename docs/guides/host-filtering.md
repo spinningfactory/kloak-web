@@ -58,7 +58,7 @@ metadata:
 ```
 
 ::: warning
-Currently, only the **first** host in the comma-separated list is enforced in the eBPF map (due to the single `AllowedHost` field in the BPF value struct). Support for multiple hosts per secret is planned.
+Currently, only the **first** host in the comma-separated list is enforced in the eBPF map ([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
 :::
 
 ### No Host Filter (Wildcard)

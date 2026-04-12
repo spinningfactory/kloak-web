@@ -134,7 +134,7 @@ metadata:
 - If the label is **absent** or empty: the secret is allowed for all destinations (wildcard).
 
 ::: warning
-Currently, only the first hostname in the comma-separated list is enforced in the eBPF map. This is due to the single `AllowedHost` field in the BPF value struct. Support for multiple hosts per secret entry is planned.
+Currently, only the first hostname in the comma-separated list is enforced in the eBPF map ([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
 :::
 
 ::: tip
