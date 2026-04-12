@@ -78,12 +78,5 @@ footer: {
 
   mermaid: {
     theme: 'dark',
-    flowchart: {
-      useMaxWidth: false,
-    },
-    sequence: {
-      useMaxWidth: false,
-      width: 1200,
-    },
   },
 }))
