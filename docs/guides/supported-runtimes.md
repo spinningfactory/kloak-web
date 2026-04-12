@@ -6,7 +6,7 @@ Kloak works by attaching eBPF uprobes to TLS library functions in your applicati
 
 Kloak currently supports two TLS stacks:
 
-- **OpenSSL 3.2 -- 3.5** -- covers Python, Ruby, PHP, Rust, C/C++, curl, and any other language or tool that links against `libssl.so`
+- **OpenSSL 3.2 -- 3.5** -- covers Python, Node.js, Ruby, PHP, Rust, C/C++, curl, and any other language or tool that links against `libssl.so`
 - **Go `crypto/tls`** (Go 1.25+) -- the standard library TLS implementation used by most Go applications
 
 Both stacks support host filtering via DNS-verified resolution and work with HTTP/1.1, HTTP/2, and raw TLS connections.
@@ -63,9 +63,10 @@ App calls SSL_write(ssl, buf, len)
 
 ### Languages Using OpenSSL
 
-Any language or tool that dynamically links against OpenSSL is automatically supported:
+Any language or tool that links against OpenSSL is automatically supported:
 
 - **Python** -- `ssl` module wraps OpenSSL via `libssl.so`. Works out of the box with `requests`, `httpx`, `urllib3`, `aiohttp`, etc.
+- **Node.js** -- Links against system OpenSSL on Alpine-based images (`node:*-alpine`). Tested with `node:22-alpine`.
 - **Ruby** -- Uses OpenSSL via the `openssl` gem and `libssl.so`.
 - **PHP** -- Uses OpenSSL via the `php-openssl` extension.
 - **Rust** -- When using the `openssl` or `native-tls` crates with system OpenSSL.
@@ -80,6 +81,17 @@ response = requests.get(
     "https://api.stripe.com/v1/charges",
     headers={"Authorization": f"Bearer {secret}"},
 )
+```
+
+```javascript
+const https = require('https');
+
+// Node.js (Alpine) -- works out of the box via system OpenSSL
+https.request({
+  hostname: 'api.stripe.com',
+  path: '/v1/charges',
+  headers: { 'Authorization': `Bearer ${secret}` },
+}, (res) => { /* ... */ });
 ```
 
 ### Checking Your OpenSSL Version
@@ -130,8 +142,7 @@ App calls http.Client.Do(req)
 The following TLS stacks are not currently supported. The eBPF uprobes have no compatible function to attach to:
 
 - **Java's built-in JSSE** -- TLS is implemented in pure Java, not via native OpenSSL
-- **Node.js** -- Statically links BoringSSL, which has different internal structs than OpenSSL. Not tested or supported
-- **BoringSSL** -- Different internal struct layout than OpenSSL. No offset support
+- **BoringSSL** -- Different internal struct layout than OpenSSL. No offset support. Node.js images that statically link BoringSSL instead of system OpenSSL are not supported
 - **GnuTLS** -- Different API (`gnutls_record_send`), different internal struct layout
 - **mbedTLS** -- Different API (`mbedtls_ssl_write`)
 - **s2n-tls** -- AWS's TLS library, different API
@@ -151,6 +162,6 @@ If your application uses an unsupported TLS stack, you may still benefit from Kl
 | Rust | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | When using native-tls |
 | C/C++ | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Direct OpenSSL usage |
 | curl | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Via system OpenSSL |
+| Node.js (Alpine) | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Via system OpenSSL; tested with node:22-alpine |
 | Go | crypto/tls | `tls.(*Conn).Write` | DNS-verified | Yes | Go 1.25+ required |
-| Node.js | BoringSSL | -- | -- | -- | Not supported |
 | Java (JSSE) | JVM built-in | -- | -- | -- | Not supported |
