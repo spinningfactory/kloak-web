@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'Kloak',
   description: 'Kubernetes eBPF Secret Interceptor — Documentation',
   base: '/docs/',
@@ -74,4 +75,4 @@ footer: {
       provider: 'local',
     },
   },
-})
+}))
