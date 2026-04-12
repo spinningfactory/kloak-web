@@ -38,6 +38,8 @@ helm install kloak kloak/kloak \
   -n kloak-system --create-namespace
 ```
 
+By default, this pulls the container image from `ghcr.io/spinningfactory/kloak:latest`.
+
 This creates the `kloak-system` namespace and deploys two components:
 
 - **kloak-controller** -- A DaemonSet that runs on every node. It watches secrets, creates shadow copies, and loads eBPF programs to intercept TLS writes.
@@ -80,13 +82,13 @@ kubectl get mutatingwebhookconfiguration kloak-mutating-webhook
 
 ## Customizing the Installation
 
-Override any value in the Helm chart using `--set` or a custom values file:
+The default image is `ghcr.io/spinningfactory/kloak:latest`. Override any value in the Helm chart using `--set` or a custom values file:
 
 ```bash
 helm install kloak kloak/kloak \
   -n kloak-system --create-namespace \
-  --set image.repository=your-registry.example.com/kloak \
-  --set image.tag=v1.2.3
+  --set image.repository=ghcr.io/spinningfactory/kloak \
+  --set image.tag=latest
 ```
 
 Or create a custom values file:
@@ -94,8 +96,8 @@ Or create a custom values file:
 ```yaml
 # my-values.yaml
 image:
-  repository: your-registry.example.com/kloak
-  tag: v1.2.3
+  repository: ghcr.io/spinningfactory/kloak
+  tag: latest
 
 controller:
   resources:
