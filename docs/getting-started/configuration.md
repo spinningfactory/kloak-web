@@ -32,13 +32,21 @@ The webhook runs as a Deployment and serves the mutating admission endpoint.
 
 The webhook listens on port `9443` for admission requests. The `Service` fronting the webhook maps port `443` to this target port.
 
-## Certificate Modes
+## Webhook Certificates
+
+Kubernetes requires all admission webhooks to serve TLS. When the API server intercepts a pod creation and forwards it to Kloak's mutating webhook, the connection must be encrypted. The API server also needs a trusted CA bundle to verify the webhook's certificate -- this is set in the `caBundle` field of the `MutatingWebhookConfiguration`.
+
+Kloak needs a TLS certificate and key pair for the webhook service, and the corresponding CA certificate must be registered with the API server so it trusts the webhook endpoint.
 
 Certificate management is configured via the Helm value `certificates.mode`:
 
-**`auto` (default)** -- Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration`. This is the recommended mode for most deployments.
+### `auto` (default)
 
-**`certManager`** -- Integrates with [cert-manager](https://cert-manager.io/). Helm creates a `Certificate` and `Issuer` resource. The cert-manager `cainjector` automatically patches the `caBundle` on the `MutatingWebhookConfiguration`.
+Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration`. This is the recommended mode for most deployments -- no additional setup required.
+
+### `certManager`
+
+Integrates with [cert-manager](https://cert-manager.io/). Helm creates a `Certificate` and `Issuer` resource. The cert-manager `cainjector` automatically patches the `caBundle` on the `MutatingWebhookConfiguration`. Use this mode if you already run cert-manager and want automated certificate rotation.
 
 ```yaml
 # values.yaml
@@ -50,7 +58,9 @@ certificates:
       kind: Issuer
 ```
 
-**`provided`** -- Helm skips certificate generation entirely and expects the `kloak-webhook-certs` secret to already exist. Use this mode when managing certificates externally.
+### `provided`
+
+Helm skips certificate generation entirely and expects the `kloak-webhook-certs` secret to already exist. Use this mode when managing certificates externally (e.g., through your own PKI or a secrets management tool).
 
 ```yaml
 # values.yaml
