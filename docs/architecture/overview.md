@@ -130,59 +130,9 @@ sequenceDiagram
 
 ## Security Model
 
-Kloak's security model is built on a fundamental principle: **real secret values never enter application memory**.
+Real secret values never enter application memory. The application only sees `kloak:<ULID>` placeholders. Real values exist in the controller's in-memory store and in kernel-space BPF maps -- both inaccessible to application containers. The XOR-patch pipeline ensures secrets are injected into ciphertext at the TC egress level, after TLS encryption, so they never pass through user-space.
 
-### What the Application Sees
-
-The application mounts a shadow secret containing `kloak:<ULID>` placeholders. When it reads `/etc/secrets/api-key`, it gets something like `kloak:MPZVR3GHWT4E6YBCA01JQXK5N8`. This value is meaningless to an attacker -- it is a random ULID that changes with each secret reconciliation.
-
-### Where Real Secrets Live
-
-Real secret values exist in exactly two places:
-
-1. **Controller process memory** -- The in-memory store maps ULIDs to real values. This runs in the privileged `kloak-system` namespace with restricted RBAC.
-
-2. **eBPF map (kernel memory)** -- The `secret_map` BPF hash map contains the ULID-to-real-value mappings. This is kernel memory, inaccessible to user-space processes (including the application container).
-
-### The Rewrite Path
-
-When the application calls `SSL_write()` with a buffer containing `kloak:<ULID>`:
-
-1. The eBPF uprobe fires **before** the TLS library encrypts the data
-2. The program scans the write buffer and finds the `kloak:` prefix
-3. Looks up the real value in the BPF map
-4. Computes the XOR difference between the shadow and real values
-5. The TLS library encrypts the buffer (still containing the shadow value)
-6. When the encrypted packet hits TC egress, the XOR delta is applied to the ciphertext
-7. The GHASH authentication tag is recomputed for the modified ciphertext
-8. The packet leaves the node carrying the real secret, encrypted -- **the real value was never in user-space memory**
-
-### Host Filtering Enforcement
-
-The eBPF program enforces host filtering at the kernel level. Even if an attacker achieves arbitrary code execution in the container:
-
-- They cannot read the real secret from memory (it was never there)
-- They cannot modify the BPF map (requires `CAP_BPF` + `CAP_SYS_ADMIN`, only the controller has these)
-- They cannot send the secret to an unauthorized host (the eBPF program checks the destination before computing XOR deltas)
-- They could attempt to call `SSL_write` with a known `kloak:` ULID to a different host, but host filtering blocks the rewrite
-- DNS responses are validated against a trusted server whitelist, preventing DNS spoofing attacks within the cluster
-
-### Privileged Access Requirements
-
-The controller DaemonSet requires elevated privileges:
-
-| Capability | Purpose |
-|---|---|
-| `CAP_BPF` | Load eBPF programs and create BPF maps |
-| `CAP_NET_ADMIN` | Attach TC egress programs to container network interfaces |
-| `CAP_SYS_ADMIN` | Access `/proc/<pid>/` for uprobe attachment, kprobe/tracepoint attachment |
-| `CAP_SYS_RESOURCE` | Increase BPF map memory limits |
-| `hostPID: true` | Resolve container PIDs and access `/proc/<pid>/ns/net` for TC attachment |
-| `privileged: true` | Required for eBPF operations on most Kubernetes distributions |
-
-::: warning
-The controller runs as a privileged DaemonSet. Restrict access to the `kloak-system` namespace with tight RBAC policies. Only cluster administrators should be able to modify resources in this namespace.
-:::
+For the full threat model, trust chain, fail modes, and known limitations, see the [Security Model](/architecture/security-model) page.
 
 ## BPF Map Layout
 

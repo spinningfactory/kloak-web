@@ -74,6 +74,23 @@ Kloak attaches uprobes to specific TLS library functions. If the application's T
 
 **If tampered with:** A modified TLS library could bypass the uprobe attachment point, causing secrets to not be rewritten. This is fail-secure -- the placeholder is sent instead of the real secret.
 
+## Privileged Access Requirements
+
+The controller DaemonSet requires elevated privileges:
+
+| Capability | Purpose |
+|---|---|
+| `CAP_BPF` | Load eBPF programs and create BPF maps |
+| `CAP_NET_ADMIN` | Attach TC egress programs to container network interfaces |
+| `CAP_SYS_ADMIN` | Access `/proc/<pid>/` for uprobe attachment, kprobe/tracepoint attachment |
+| `CAP_SYS_RESOURCE` | Increase BPF map memory limits |
+| `hostPID: true` | Resolve container PIDs and access `/proc/<pid>/ns/net` for TC attachment |
+| `privileged: true` | Required for eBPF operations on most Kubernetes distributions |
+
+::: warning
+The controller runs as a privileged DaemonSet. Restrict access to the `kloak-system` namespace with tight RBAC policies. Only cluster administrators should be able to modify resources in this namespace.
+:::
+
 ## How the Pieces Fit Together
 
 ```
