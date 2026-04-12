@@ -78,7 +78,13 @@ If you prefer full control, you can use `provided` mode with a cert-manager `Cer
 
 ## Enablement Model
 
-Kloak uses a layered opt-in model. Nothing is intercepted unless explicitly enabled.
+Kloak uses a strict opt-in model. Nothing is intercepted unless explicitly enabled. For Kloak to protect a secret end-to-end, two things must be enabled independently:
+
+1. **The secret itself** -- tells Kloak *which* secrets to protect. Enabling a secret causes the controller to create a shadow copy with ULID placeholders and store the real-to-shadow mapping. Without this, no shadow secret exists and there is nothing to rewrite.
+
+2. **The workload** -- tells Kloak *which* pods should have their TLS writes intercepted. Enabling a workload causes the webhook to rewrite secret volume references to point to shadow secrets, and the controller to attach eBPF uprobes to the pod's process. Without this, the pod mounts the original secret and no eBPF interception occurs.
+
+Both sides are required. Enabling only the secret creates the shadow copy but no pod uses it. Enabling only the workload has no effect because the webhook only rewrites volume references for secrets that have a shadow copy.
 
 ### Secret Enablement
 
@@ -97,30 +103,15 @@ stringData:
   token: "my-real-token-value"
 ```
 
-When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with ULID placeholders length-matched to each key's value.
+When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with ULID placeholders length-matched to each key's value. The real secret values are stored in the controller's in-memory store and synced to the eBPF map in the kernel. The original secret is untouched.
 
-### Namespace Enablement
+### Workload Enablement
 
-The `MutatingWebhookConfiguration` fires for all namespaces except the Kloak install namespace (typically `kloak-system`), `kube-system`, and `kube-public`. Within those namespaces, the webhook handler checks whether each pod is enabled before mutating it.
+Workloads can be enabled at three levels -- pod, namespace, or owner workload. The webhook fires for all namespaces except `kloak-system`, `kube-system`, and `kube-public`, and checks each pod against these levels.
 
-Labeling a namespace is one way to enable all pods within it:
+#### Pod Annotation
 
-```bash
-kubectl label namespace my-namespace getkloak.io/enabled=true
-```
-
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: my-namespace
-  labels:
-    getkloak.io/enabled: "true"
-```
-
-### Pod Enablement
-
-Annotate individual pods (or their parent Deployment/StatefulSet/DaemonSet templates) to enable secret rewriting:
+The most specific level. Annotate individual pods (or their parent Deployment/StatefulSet/DaemonSet templates):
 
 ```yaml{6-7}
 apiVersion: apps/v1
@@ -138,13 +129,44 @@ spec:
           # ...
 ```
 
-### Enablement Inheritance
+When the pod is created, the webhook rewrites any Secret-backed volume references that have a corresponding shadow secret, and adds the `getkloak.io/enabled` annotation so the controller knows to attach eBPF uprobes.
 
-The webhook handler checks enablement in the following order, stopping at the first match:
+#### Namespace Label
+
+Enables Kloak for all pods in a namespace. Useful when an entire namespace should be protected:
+
+```bash
+kubectl label namespace my-namespace getkloak.io/enabled=true
+```
+
+Every pod created in this namespace is treated as Kloak-enabled, even without an explicit pod annotation.
+
+::: warning
+Labeling a namespace enables Kloak for **every** pod in that namespace. Make sure all applications are compatible (see [Supported Runtimes](/guides/supported-runtimes)). Pods using unsupported TLS stacks will fail to have uprobes attached, which is logged as an error but does not block the pod.
+:::
+
+#### Owner Workload Label
+
+Enables Kloak for all pods owned by a specific Deployment, DaemonSet, or StatefulSet:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  labels:
+    getkloak.io/enabled: "true"  # All pods from this Deployment get Kloak
+```
+
+The webhook follows the pod's `ownerReferences` chain (Pod -> ReplicaSet -> Deployment) and checks for the label at each level.
+
+### Enablement Precedence
+
+The webhook checks enablement in the following order, stopping at the first match:
 
 1. **Pod annotation** -- `getkloak.io/enabled: "true"` on the pod itself.
 2. **Namespace label** -- `getkloak.io/enabled: "true"` on the pod's namespace.
-3. **Owner workload labels** -- The webhook follows the pod's `ownerReferences` chain (Pod -> ReplicaSet -> Deployment) and checks for `getkloak.io/enabled: "true"` on the owning workload.
+3. **Owner workload labels** -- The webhook follows the `ownerReferences` chain and checks for `getkloak.io/enabled: "true"` on the owning workload.
 
 If none of these are set to `"true"`, the pod passes through without mutation.
 
