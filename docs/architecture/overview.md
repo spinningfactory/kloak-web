@@ -90,119 +90,81 @@ At TLS write time, `resolve_host()` chains: `ssl_fd_map` (cache) -> `last_verifi
 
 ```mermaid
 sequenceDiagram
-    participant User as Cluster Admin
     participant K8s as Kubernetes API
-    participant SR as SecretReconciler
+    participant Ctrl as Controller
     participant WH as Webhook
     participant App as Application Pod
-    participant eBPF as eBPF (kernel)
-    participant TC as TC Egress (kernel)
+    participant BPF as eBPF + TC (kernel)
     participant Remote as Remote Server
 
-    User->>K8s: Create Secret (getkloak.io/enabled=true)
-    K8s->>SR: Watch event
-    SR->>K8s: Create shadow secret<br/>(api-creds-kloak with kloak:ULID)
-    SR->>SR: Store ULID → real value mapping
+    K8s->>Ctrl: Secret watch event
+    Ctrl->>K8s: Create shadow secret (kloak:ULID)
+    Ctrl->>Ctrl: Store ULID → real value
 
-    User->>K8s: Create Pod (referencing api-creds)
-    K8s->>WH: Admission webhook
-    WH->>WH: Check enablement<br/>(annotation/namespace/workload)
-    WH->>K8s: Mutate: api-creds → api-creds-kloak
-    K8s->>App: Pod starts with shadow secret mounted
+    K8s->>WH: Pod admission
+    WH->>K8s: Mutate volumes → shadow secret
 
-    App->>App: Read /etc/secrets/api-key<br/>Sees: kloak:MPZVR3GH...
+    K8s->>App: Pod starts with shadow mounted
+    App->>App: Reads kloak:MPZVR3GH...
 
-    Note over SR,eBPF: Controller syncs mapping to BPF map every 5s
+    Note over Ctrl,BPF: Controller syncs mapping to BPF map
 
-    App->>eBPF: SSL_write(buf containing kloak:ULID)
-    eBPF->>eBPF: Scan buffer, find kloak: prefix<br/>Resolve host via DNS chain<br/>Compute XOR delta (shadow ^ real)
-    eBPF->>eBPF: Store patches in xor_pending
-
-    App->>eBPF: TLS library encrypts with shadow value
-    eBPF->>eBPF: tcp_sendmsg kprobe:<br/>Move patches to tc_pending
-
-    eBPF->>TC: Packet hits TC egress
-    TC->>TC: XOR ciphertext with delta<br/>Recompute GHASH tag
-    TC->>Remote: TLS-encrypted data with real secret
+    App->>BPF: SSL_write(kloak:ULID)
+    BPF->>BPF: Scan buffer, resolve host
+    BPF->>BPF: Compute XOR delta
+    BPF->>BPF: TLS encrypts (shadow)
+    BPF->>BPF: TC egress: XOR ciphertext + GHASH
+    BPF->>Remote: Real secret (encrypted)
 ```
 
 ## System Architecture Diagram
 
 ```mermaid
-graph TB
-    subgraph "Control Plane"
-        API[Kubernetes API Server]
-        MWH[MutatingWebhookConfiguration]
-    end
-
-    subgraph "kloak-system namespace"
-        subgraph "Controller DaemonSet (per node)"
-            SR[SecretReconciler]
-            PR[Pod Reconciler]
-            TM[TLS Uprobe Manager]
-            MS[In-Memory Store]
-        end
-        subgraph "Webhook Deployment"
-            WH[Admission Handler]
-        end
-    end
-
-    subgraph "Kernel (eBPF)"
-        subgraph "Uprobe Path"
-            UP[Uprobe: SSL_write<br/>Scan + XOR delta]
-            HX[H Extract: GHASH key<br/>from TLS struct]
-        end
-        subgraph "Network Path"
-            KP_TCP[Kprobe: tcp_sendmsg<br/>Bridge to TC]
-            TC[TC Egress: eth0 + lo<br/>XOR ciphertext + GHASH]
-        end
-        subgraph "DNS Chain"
-            KP_DNS[Kprobe: udp_recvmsg<br/>DNS Capture]
-            TP[Tracepoint: connect/close<br/>Connection Tracking]
-        end
-        subgraph "BPF Maps"
-            BPF_MAP[secret_map]
-            DNS_MAP[dns_ip_map]
-            CONN_MAP[conn_ip_map]
-            TLS_STATE[tls_conn_state<br/>GHASH H per connection]
-            XOR_PEND[xor_pending<br/>Patches per thread]
-            TC_PEND[tc_pending<br/>Patches per packet]
-        end
-    end
-
-    subgraph "Application Namespace"
-        SEC[Original Secret<br/>getkloak.io/enabled=true]
-        SHAD[Shadow Secret<br/>-kloak suffix]
+graph LR
+    subgraph K8s["Kubernetes"]
+        API[API Server]
+        SEC[Original Secret]
+        SHAD[Shadow Secret]
         POD[Application Pod]
     end
 
-    API --> SR
-    API --> PR
-    API --> MWH
-    MWH --> WH
+    subgraph Kloak["kloak-system"]
+        WH[Webhook]
+        SR[SecretReconciler]
+        PR[Pod Reconciler]
+        MS[In-Memory Store]
+    end
+
+    subgraph Kernel["Kernel eBPF"]
+        UP[Uprobe: SSL_write]
+        HX[H Extract]
+        KP_TCP[Kprobe: tcp_sendmsg]
+        TC[TC Egress]
+        KP_DNS[Kprobe: udp_recvmsg]
+        TP[Tracepoint: connect]
+        BPF[secret_map]
+        DNS[dns_ip_map]
+    end
+
+    Remote[Remote Server]
 
     SR -->|watches| SEC
-    SR -->|creates/updates| SHAD
-    SR -->|stores mapping| MS
-
-    WH -->|mutates pod volumes| API
-
-    PR -->|detects pod, attaches uprobe + TC| TM
-    TM -->|syncs secrets| BPF_MAP
-    MS --> TM
+    SR -->|creates| SHAD
+    SR -->|stores| MS
+    MS -->|syncs| BPF
+    WH -->|mutates volumes| API
+    PR -->|attaches uprobes + TC| UP
 
     POD -->|mounts| SHAD
     POD -->|SSL_write| UP
-    UP -->|key lookup| BPF_MAP
+    UP -->|lookup| BPF
     UP -->|extract H| HX
-    HX -->|cache| TLS_STATE
-    UP -->|resolve host| DNS_MAP
-    UP -->|store patches| XOR_PEND
-    KP_TCP -->|move patches| TC_PEND
-    TC -->|read patches| TC_PEND
-    TC -->|read H| TLS_STATE
-    KP_DNS -->|DNS responses| DNS_MAP
-    TP -->|fd to IP| CONN_MAP
+    UP -->|XOR delta| KP_TCP
+    KP_TCP -->|patches| TC
+    TC -->|patched ciphertext| Remote
+    KP_DNS -->|DNS responses| DNS
+    TP -->|fd → IP| DNS
+    UP -->|resolve host| DNS
 ```
 
 ## Security Model

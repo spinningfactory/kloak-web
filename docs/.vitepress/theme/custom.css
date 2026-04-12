@@ -42,6 +42,20 @@
   display: none;
 }
 
+/* Mermaid diagrams: allow full width and horizontal scroll */
+.mermaid-wrapper,
+.mermaid {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto;
+}
+
+.mermaid svg {
+  min-width: 800px;
+  max-width: none !important;
+  height: auto !important;
+}
+
 .VPContent {
   position: relative;
 }
