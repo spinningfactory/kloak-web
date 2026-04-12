@@ -5,7 +5,7 @@ export default withMermaid(defineConfig({
   title: 'Kloak',
   description: 'Kubernetes eBPF Secret Interceptor — Documentation',
   base: '/docs/',
-  appearance: 'dark',
+  appearance: 'force-dark',
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/transparent-logo.svg' }],
