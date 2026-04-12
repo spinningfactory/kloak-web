@@ -12,6 +12,7 @@ Kloak uses Kubernetes labels and annotations to control which secrets are protec
 | `getkloak.io/enabled` | Label | Namespace | Enables Kloak for all pods in this namespace. The webhook only processes pods in labeled namespaces. |
 | `getkloak.io/enabled` | Label or Annotation | Deployment, DaemonSet, StatefulSet | Enables Kloak for all pods owned by this workload. |
 | `getkloak.io/hosts` | Label | Secret | Comma-separated list of allowed TLS destination hostnames. |
+| `getkloak.io/port` | Label | Secret | Allowed destination port for secret transmission (e.g., `443`). If omitted, all ports are allowed. |
 | `getkloak.io/managed` | Label | Secret (shadow) | Automatically set by Kloak on shadow secrets. Do not set manually. |
 | `getkloak.io/owner` | Label | Secret (shadow) | Name of the original secret. Automatically set by Kloak. Do not set manually. |
 
@@ -75,9 +76,7 @@ You typically do not need to set this annotation manually. The webhook automatic
 
 When set on a Namespace, two things happen:
 
-1. **Webhook activation:** The `MutatingWebhookConfiguration` has a `namespaceSelector` that only matches namespaces with this label. Pods in unlabeled namespaces are never processed by the webhook.
-
-2. **Inheritance:** All pods created in this namespace are treated as Kloak-enabled, even without an explicit pod annotation. The webhook checks the namespace label as a fallback.
+1. **Enablement inheritance:** All pods created in this namespace are treated as Kloak-enabled, even without an explicit pod annotation. The webhook checks the namespace label as a fallback.
 
 ```bash
 kubectl label namespace my-app getkloak.io/enabled=true
@@ -142,7 +141,27 @@ Currently, only the first hostname in the comma-separated list is enforced in th
 Hostnames are matched exactly (case-sensitive, no wildcards). Use the exact hostname your application connects to. For example, use `api.stripe.com`, not `*.stripe.com` or `stripe.com`.
 :::
 
-**Hostname length limit:** 32 characters. Hostnames longer than 32 characters are truncated in the BPF map.
+**Hostname length limit:** 64 characters. Hostnames longer than 64 characters are truncated in the BPF map.
+
+### `getkloak.io/port`
+
+Restricts which destination port is allowed to receive the real secret value. Applied as a **label** on Secrets.
+
+**Type:** Label
+**Applies to:** Secret
+**Format:** Port number as a string (e.g., `"443"`)
+
+```yaml
+metadata:
+  labels:
+    getkloak.io/enabled: "true"
+    getkloak.io/hosts: "api.stripe.com"
+    getkloak.io/port: "443"
+```
+
+**Behavior:**
+- If the label is **present**: only connections to the specified port receive the real value.
+- If the label is **absent** or empty: the secret is allowed for all ports (wildcard).
 
 ### `getkloak.io/managed`
 
