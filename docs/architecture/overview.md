@@ -24,12 +24,19 @@ It performs four functions:
 
 The webhook runs as a standard **Deployment** (typically 1 replica). It is a Kubernetes mutating admission webhook registered for `CREATE` operations on pods.
 
-When a pod is created:
+Two `MutatingWebhookConfiguration` entries ensure only kloak-enabled workloads are sent to the webhook:
+- **Namespace-scoped:** matches namespaces labeled `getkloak.io/enabled=true`
+- **Pod-scoped:** matches pods labeled `getkloak.io/enabled=true` via `objectSelector`
 
-1. Checks if Kloak is enabled for this pod (pod annotation, namespace label, or owner workload label/annotation)
+Non-kloak workloads are never affected, even if the webhook is down.
+
+When a pod is matched:
+
+1. Checks if Kloak is enabled for this pod (pod label or namespace label)
 2. Scans all Secret-backed volumes in the pod spec
 3. For each volume referencing a secret that has a shadow copy, rewrites `secretName` from `original` to `original-kloak`
-4. Adds `getkloak.io/enabled: "true"` annotation to the pod so the controller knows to attach eBPF uprobes
+4. **Rejects** the pod if any kloak-enabled secret's shadow does not exist yet (fail-closed)
+5. Adds `getkloak.io/enabled: "true"` annotation to the pod so the controller knows to attach eBPF uprobes
 
 ### eBPF Programs
 

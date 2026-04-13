@@ -107,11 +107,11 @@ When the `SecretReconciler` detects this label, it creates `my-secret-kloak` wit
 
 ### Workload Enablement
 
-Workloads can be enabled at three levels -- pod, namespace, or owner workload. The webhook fires for all namespaces except `kloak-system`, `kube-system`, and `kube-public`, and checks each pod against these levels.
+Workloads can be enabled at two levels -- pod label or namespace label. The webhook uses two `MutatingWebhookConfiguration` entries with Kubernetes selectors so that only kloak-enabled namespaces and pods are sent to the webhook. Non-kloak workloads are never affected, even if the webhook is down.
 
-#### Pod Annotation
+#### Pod Label
 
-The most specific level. Annotate individual pods (or their parent Deployment/StatefulSet/DaemonSet templates):
+Label individual pods (via the pod template in a Deployment/StatefulSet/DaemonSet):
 
 ```yaml{6-7}
 apiVersion: apps/v1
@@ -121,7 +121,7 @@ metadata:
 spec:
   template:
     metadata:
-      annotations:
+      labels:
         getkloak.io/enabled: "true"
     spec:
       containers:
@@ -129,7 +129,7 @@ spec:
           # ...
 ```
 
-When the pod is created, the webhook rewrites any Secret-backed volume references that have a corresponding shadow secret, and adds the `getkloak.io/enabled` annotation so the controller knows to attach eBPF uprobes.
+When the pod is created, the webhook rewrites any Secret-backed volume references that have a corresponding shadow secret, and adds the `getkloak.io/enabled` annotation so the controller knows to attach eBPF uprobes. If the shadow secret has not been created yet (controller hasn't reconciled), the webhook **rejects** the pod to prevent real secrets from being mounted.
 
 #### Namespace Label
 
@@ -139,36 +139,24 @@ Enables Kloak for all pods in a namespace. Useful when an entire namespace shoul
 kubectl label namespace my-namespace getkloak.io/enabled=true
 ```
 
-Every pod created in this namespace is treated as Kloak-enabled, even without an explicit pod annotation.
+Every pod created in this namespace is treated as Kloak-enabled, even without an explicit pod label.
 
 ::: warning
 Labeling a namespace enables Kloak for **every** pod in that namespace. Make sure all applications are compatible (see [Supported Runtimes](/guides/supported-runtimes)). Pods using unsupported TLS stacks will fail to have uprobes attached, which is logged as an error but does not block the pod.
 :::
 
-#### Owner Workload Label
-
-Enables Kloak for all pods owned by a specific Deployment, DaemonSet, or StatefulSet:
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  labels:
-    getkloak.io/enabled: "true"  # All pods from this Deployment get Kloak
-```
-
-The webhook follows the pod's `ownerReferences` chain (Pod -> ReplicaSet -> Deployment) and checks for the label at each level.
-
 ### Enablement Precedence
 
 The webhook checks enablement in the following order, stopping at the first match:
 
-1. **Pod annotation** -- `getkloak.io/enabled: "true"` on the pod itself.
+1. **Pod label** -- `getkloak.io/enabled: "true"` on the pod itself.
 2. **Namespace label** -- `getkloak.io/enabled: "true"` on the pod's namespace.
-3. **Owner workload labels** -- The webhook follows the `ownerReferences` chain and checks for `getkloak.io/enabled: "true"` on the owning workload.
 
-If none of these are set to `"true"`, the pod passes through without mutation.
+If neither is set to `"true"`, the pod is not processed by Kloak.
+
+::: tip
+Workload-level inheritance (Deployment, DaemonSet, StatefulSet labels) is not supported. Use pod template labels or namespace labels instead.
+:::
 
 ### Host Filtering
 

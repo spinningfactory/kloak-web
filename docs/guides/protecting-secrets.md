@@ -73,7 +73,7 @@ metadata:
 spec:
   template:
     metadata:
-      annotations:
+      labels:
         getkloak.io/enabled: "true"
     spec:
       containers:
@@ -95,20 +95,7 @@ spec:
 kubectl label namespace my-app getkloak.io/enabled=true
 ```
 
-When a namespace is labeled, every pod created in that namespace is automatically processed by Kloak -- no per-pod annotations needed.
-
-### Option C: Workload Label (Deployment, DaemonSet, StatefulSet)
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-  labels:
-    getkloak.io/enabled: "true"  # All pods from this Deployment get Kloak
-```
-
-Kloak follows the owner reference chain: Pod -> ReplicaSet -> Deployment. If any level has the label or annotation, the pod is enabled.
+When a namespace is labeled, every pod created in that namespace is automatically processed by Kloak -- no per-pod labels needed.
 
 ::: tip
 Always reference the **original** secret name in your volume definition, not the shadow. The webhook automatically rewrites the volume to mount the shadow secret instead.
@@ -116,17 +103,18 @@ Always reference the **original** secret name in your volume definition, not the
 
 ## Step 3: How the Webhook Mutates Your Pod
 
-When a pod is created in a namespace labeled with `getkloak.io/enabled=true`, the Kloak mutating webhook intercepts the admission request and:
+When a pod with `getkloak.io/enabled=true` label (or in a labeled namespace) is created, the Kloak mutating webhook intercepts the admission request and:
 
-1. Checks if Kloak is enabled (pod annotation, namespace label, or workload label)
+1. Checks if Kloak is enabled (pod label or namespace label)
 2. Scans all Secret volumes in the pod spec
 3. For each secret that has `getkloak.io/enabled=true`, rewrites `secretName` from `api-credentials` to `api-credentials-kloak`
-4. Adds the `getkloak.io/enabled: "true"` annotation to the pod (so the controller can detect it)
+4. **Rejects** the pod if any shadow secret is missing (fail-closed -- prevents real secrets from being mounted)
+5. Adds the `getkloak.io/enabled: "true"` annotation to the pod (so the controller can detect it)
 
 You can verify the mutation worked:
 
 ```bash
-# Check the pod annotation
+# Check the pod annotation (injected by webhook on mutation)
 $ kubectl get pod -l app=my-app -n my-app -o jsonpath='{.items[0].metadata.annotations.getkloak\.io/enabled}'
 true
 
