@@ -222,7 +222,7 @@ kubectl label secret my-secret getkloak.io/enabled- -n my-namespace
 
 ### Check if a pod was mutated:
 ```bash
-kubectl get pod <pod-name> -n my-namespace -o jsonpath='{.metadata.labels.getkloak\.io/enabled}'
+kubectl get pod <pod-name> -n my-namespace -o jsonpath='{.metadata.annotations.getkloak\.io/enabled}'
 ```
 
 ### List all shadow secrets:

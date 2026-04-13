@@ -114,8 +114,8 @@ When a pod with `getkloak.io/enabled=true` label (or in a labeled namespace) is 
 You can verify the mutation worked:
 
 ```bash
-# Check the pod label
-$ kubectl get pod -l app=my-app -n my-app -o jsonpath='{.items[0].metadata.labels.getkloak\.io/enabled}'
+# Check the pod annotation (injected by webhook on mutation)
+$ kubectl get pod -l app=my-app -n my-app -o jsonpath='{.items[0].metadata.annotations.getkloak\.io/enabled}'
 true
 
 # Check which secret is actually mounted
