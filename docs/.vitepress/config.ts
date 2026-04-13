@@ -57,6 +57,7 @@ export default withMermaid(defineConfig({
         text: 'Reference',
         items: [
           { text: 'Labels & Annotations', link: '/reference/labels-annotations' },
+          { text: 'Limits', link: '/reference/limits' },
           { text: 'Requirements', link: '/reference/requirements' },
         ],
       },
