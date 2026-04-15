@@ -18,7 +18,7 @@ OpenClaw Pod                          LLM Providers
 +-------------------------+                        +------------------+
 ```
 
-Your OpenClaw gateway reads `kloak:<ULID>` placeholders from its environment. When it makes API calls to Anthropic, OpenAI, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
+Your OpenClaw gateway reads `kloak:<ULID>` placeholders from mounted secret files. When it makes API calls to Anthropic, OpenAI, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
 
 ## Prerequisites
 
@@ -193,7 +193,11 @@ kubectl apply -f openclaw-pvc.yaml
 
 ## Step 5: Deploy OpenClaw
 
-Deploy OpenClaw with secrets mounted as environment variables. Note that all `secretKeyRef` references point to the **original** secret names -- Kloak's webhook automatically rewrites them to the shadow secrets:
+Deploy OpenClaw with secrets mounted as **volumes**. Kloak's webhook rewrites secret volume references to point to shadow secrets -- this is how the application receives `kloak:<ULID>` placeholders instead of real values. A wrapper script reads the mounted files into environment variables before starting OpenClaw.
+
+::: warning
+Kloak only supports secret **volume mounts**, not `secretKeyRef` environment variables. Secrets injected via `env[].valueFrom.secretKeyRef` bypass the webhook and are not protected.
+:::
 
 ```yaml
 # openclaw-deployment.yaml
@@ -238,6 +242,15 @@ spec:
           ports:
             - containerPort: 18789
               name: gateway
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Read secrets from mounted files into env vars
+              export ANTHROPIC_API_KEY=$(cat /etc/secrets/anthropic/ANTHROPIC_API_KEY)
+              export OPENCLAW_GATEWAY_TOKEN=$(cat /etc/secrets/gateway/OPENCLAW_GATEWAY_TOKEN)
+              [ -f /etc/secrets/openai/OPENAI_API_KEY ] && export OPENAI_API_KEY=$(cat /etc/secrets/openai/OPENAI_API_KEY)
+              [ -f /etc/secrets/gemini/GEMINI_API_KEY ] && export GEMINI_API_KEY=$(cat /etc/secrets/gemini/GEMINI_API_KEY)
+              exec node /app/gateway.js
           env:
             - name: HOME
               value: /home/node
@@ -245,33 +258,21 @@ spec:
               value: /home/node/.openclaw
             - name: NODE_ENV
               value: production
-            # Gateway auth token
-            - name: OPENCLAW_GATEWAY_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: openclaw-gateway-token
-                  key: OPENCLAW_GATEWAY_TOKEN
-            # LLM provider keys -- all protected by Kloak
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: anthropic-api-key
-                  key: ANTHROPIC_API_KEY
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: openai-api-key
-                  key: OPENAI_API_KEY
-                  optional: true
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: gemini-api-key
-                  key: GEMINI_API_KEY
-                  optional: true
           volumeMounts:
             - name: data
               mountPath: /home/node/.openclaw
+            - name: secret-anthropic
+              mountPath: /etc/secrets/anthropic
+              readOnly: true
+            - name: secret-gateway
+              mountPath: /etc/secrets/gateway
+              readOnly: true
+            - name: secret-openai
+              mountPath: /etc/secrets/openai
+              readOnly: true
+            - name: secret-gemini
+              mountPath: /etc/secrets/gemini
+              readOnly: true
           resources:
             requests:
               cpu: 100m
@@ -298,7 +299,23 @@ spec:
         - name: config
           configMap:
             name: openclaw-config
+        - name: secret-anthropic
+          secret:
+            secretName: anthropic-api-key
+        - name: secret-gateway
+          secret:
+            secretName: openclaw-gateway-token
+        - name: secret-openai
+          secret:
+            secretName: openai-api-key
+            optional: true
+        - name: secret-gemini
+          secret:
+            secretName: gemini-api-key
+            optional: true
 ```
+
+Note that all `secretName` references point to the **original** secret names. Kloak's webhook automatically rewrites them to the shadow secrets (e.g., `anthropic-api-key` becomes `anthropic-api-key-kloak`).
 
 ```bash
 kubectl apply -f openclaw-deployment.yaml
@@ -348,17 +365,14 @@ You should see `getkloak.io/enabled: "true"` in the annotations.
 
 ### Check What the App Sees
 
-Exec into the pod and inspect the environment:
+Exec into the pod and inspect the mounted secret files:
 
 ```bash
-kubectl exec -n openclaw deploy/openclaw -- env | grep -E "API_KEY|GATEWAY_TOKEN"
+kubectl exec -n openclaw deploy/openclaw -- cat /etc/secrets/anthropic/ANTHROPIC_API_KEY
 ```
 
 ```
-ANTHROPIC_API_KEY=kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
-OPENAI_API_KEY=kloak:QN4FX8KJBR7YWSE201JQXK6P9
-GEMINI_API_KEY=kloak:TH5GA9DMCS8ZXRF301JQXK7Q0
-OPENCLAW_GATEWAY_TOKEN=kloak:VJ6HB0ENDT9AYSG401JQXK8R1
+kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 ```
 
 The application only sees `kloak:<ULID>` placeholders -- the real keys are never in process memory.
@@ -447,10 +461,10 @@ The gateway token is verified locally by OpenClaw, not sent over TLS. If clients
 
 ```bash
 kubectl get pod -l app=openclaw -n openclaw \
-  -o jsonpath='{.items[0].spec.containers[0].env}' | jq '.[] | select(.name == "OPENCLAW_GATEWAY_TOKEN")'
+  -o jsonpath='{.items[0].spec.volumes}' | jq '.[] | select(.name == "secret-gateway")'
 ```
 
-The `secretKeyRef.name` should show the `-kloak` suffix (rewritten by the webhook).
+The `secret.secretName` should show the `-kloak` suffix (rewritten by the webhook).
 
 ## Clean Up
 
@@ -461,5 +475,5 @@ kubectl delete namespace openclaw
 ## Next Steps
 
 - Read the [Host Filtering guide](/guides/host-filtering) to understand the DNS-verified trust chain in depth
-- Learn about [Supported Runtimes](/guides/supported-runtimes) -- OpenClaw (Node.js/BoringSSL) is fully supported
+- Learn about [Supported Runtimes](/guides/supported-runtimes) -- OpenClaw (Node.js on Alpine with system OpenSSL) is supported
 - Review the [Architecture Overview](/architecture/overview) for the full eBPF data flow
