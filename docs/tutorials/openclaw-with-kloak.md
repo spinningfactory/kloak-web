@@ -9,22 +9,22 @@ OpenClaw Pod                          LLM Providers
 +-------------------------+
 | Gateway Container       |
 |                         |     TLS write          +------------------+
-| ANTHROPIC_API_KEY=      |  ------------------>   | api.anthropic.com|
+| OPENAI_API_KEY=         |  ------------------>   | api.openai.com   |
 |   kloak:MPZVR3GH...   |  eBPF rewrites with    | (real key sent)  |
 |                         |  real key in-kernel     +------------------+
-| OPENAI_API_KEY=         |  ------------------>   +------------------+
-|   kloak:QN4FX8KJ...   |                        | api.openai.com   |
-|                         |                        | (real key sent)  |
+| GEMINI_API_KEY=         |  ------------------>   +------------------+
+|   kloak:QN4FX8KJ...   |                        | generativelanguage|
+|                         |                        | .googleapis.com  |
 +-------------------------+                        +------------------+
 ```
 
-Your OpenClaw gateway reads `kloak:<ULID>` placeholders from mounted secret files. When it makes API calls to Anthropic, OpenAI, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
+Your OpenClaw gateway reads `kloak:<ULID>` placeholders from mounted secret files. When it makes API calls to OpenAI, Gemini, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
 
 ## Prerequisites
 
 - A running Kubernetes cluster (1.28+, Linux kernel 5.17+) with [Kloak installed](/getting-started/installation)
 - `kubectl` configured and pointed at your cluster
-- API keys for at least one LLM provider (Anthropic, OpenAI, or Google Gemini)
+- API keys for at least one LLM provider (OpenAI or Google Gemini)
 
 ## Step 1: Create the Namespace
 
@@ -38,23 +38,6 @@ kubectl label namespace openclaw getkloak.io/enabled=true
 ## Step 2: Create Kloak-Protected Secrets
 
 Create separate secrets for each LLM provider, each with a host filter that restricts where the key can be sent. This is the key security property -- even if OpenClaw is compromised, each API key can only be sent to its intended provider.
-
-### Anthropic API Key
-
-```yaml
-# anthropic-secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: anthropic-api-key
-  namespace: openclaw
-  labels:
-    getkloak.io/enabled: "true"
-    getkloak.io/hosts: "api.anthropic.com"
-type: Opaque
-stringData:
-  ANTHROPIC_API_KEY: "sk-ant-your-real-anthropic-key-here"
-```
 
 ### OpenAI API Key
 
@@ -114,7 +97,6 @@ stringData:
 Apply all secrets:
 
 ```bash
-kubectl apply -f anthropic-secret.yaml
 kubectl apply -f openai-secret.yaml
 kubectl apply -f gemini-secret.yaml       # if using Gemini
 kubectl apply -f gateway-token-secret.yaml
