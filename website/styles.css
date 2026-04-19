@@ -271,6 +271,7 @@ code {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
 }
 
 .hero {
@@ -278,13 +279,14 @@ code {
     display: flex;
     align-items: center;
     padding: calc(80px + 10rem) 0 var(--space-4);
-    overflow: hidden;
+    z-index: 1;
 }
 
 .hero-bg {
     position: absolute;
     inset: 0;
-    z-index: -1;
+    z-index: 0;
+    pointer-events: none;
 }
 
 .hero-gradient {
@@ -596,8 +598,8 @@ code {
     align-items: center;
     justify-content: center;
     padding: 0;
-    background: var(--color-bg);
     position: relative;
+    z-index: 1;
 }
 
 .quickstart-terminal {
