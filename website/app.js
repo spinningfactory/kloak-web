@@ -113,6 +113,21 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 });
 
 /**
+ * Copy install command to clipboard
+ */
+function copyInstallCommand() {
+    const command = `helm repo add kloak https://chart.getkloak.io
+helm repo update
+helm install kloak kloak/kloak -n kloak-system --create-namespace --set demo.enabled=true`;
+
+    navigator.clipboard.writeText(command).then(() => {
+        const label = document.querySelector('.copy-label');
+        label.textContent = 'Copied!';
+        setTimeout(() => { label.textContent = 'Copy'; }, 2000);
+    });
+}
+
+/**
  * Handle form submission via Formspree AJAX
  */
 const demoForm = document.getElementById('demo-form');

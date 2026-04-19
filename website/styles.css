@@ -266,12 +266,18 @@ code {
    Hero Section
    ============================================ */
 
+.hero-fold {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .hero {
     position: relative;
-    min-height: 100vh;
     display: flex;
     align-items: center;
-    padding: var(--space-24) 0 var(--space-16);
+    padding: calc(80px + 10rem) 0 var(--space-4);
     overflow: hidden;
 }
 
@@ -304,7 +310,7 @@ code {
 
 .hero-header {
     text-align: center;
-    margin-bottom: var(--space-12);
+    margin-bottom: var(--space-6);
 }
 
 .hero-layout {
@@ -576,6 +582,55 @@ code {
 
 .term-success {
     color: var(--color-success);
+}
+
+.term-prompt {
+    color: var(--color-primary-light);
+    user-select: none;
+}
+
+/* Quick Start Section */
+.quickstart {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--color-bg);
+    position: relative;
+}
+
+.quickstart-terminal {
+    max-width: 700px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.quickstart-terminal .terminal-body {
+    position: relative;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-color: var(--color-border-hover);
 }
 
 /* ============================================
