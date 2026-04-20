@@ -266,31 +266,19 @@ code {
    Hero Section
    ============================================ */
 
-.hero-fold {
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-6);
-    overflow: hidden;
-    position: relative;
-    padding: 80px 0 var(--space-6);
-}
-
-
 .hero {
     position: relative;
+    min-height: 100vh;
     display: flex;
     align-items: center;
-    padding: 80px 0 0 0;
-    z-index: 1;
+    padding: var(--space-16) 0 var(--space-8);
+    overflow: hidden;
 }
 
 .hero-bg {
     position: absolute;
     inset: 0;
-    z-index: 0;
-    pointer-events: none;
+    z-index: -1;
 }
 
 .hero-gradient {
@@ -595,17 +583,10 @@ code {
     user-select: none;
 }
 
-/* Quick Start Section */
-.quickstart {
-    padding: 0;
-    position: relative;
-    z-index: 1;
-}
-
 .quickstart-terminal {
     max-width: 700px;
     width: 100%;
-    margin: 0 auto;
+    margin: var(--space-8) auto 0;
 }
 
 .quickstart-terminal .terminal-body {
