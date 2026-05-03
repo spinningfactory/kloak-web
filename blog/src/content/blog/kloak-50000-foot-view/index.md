@@ -1,9 +1,9 @@
 ---
 title: 'Kloak: a 50,000-foot view'
-description: 'Why we started working on Kloak, what its purpose is, and how it works at a high level.'
+description: 'How Kloak keeps secrets out of your application''s memory, even from the application itself'
 pubDate: 2026-05-03
 author: 'Kloak Team'
-tags: ['security', 'announcements']
+tags: ['secrets-management', 'overview','vision']
 ---
 
 The last two weeks have been exciting for us. We announced Kloak, released v0.1.0, and the community response has been incredible — more than 150 stars on GitHub. In this post we want to answer some of the recurring questions we received, and share our vision for how Kloak fits into the broader secrets management landscape.
