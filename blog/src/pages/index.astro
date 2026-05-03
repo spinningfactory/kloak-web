@@ -8,7 +8,8 @@ const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
 );
 
 const [featured, ...rest] = posts;
-const allTags = Array.from(new Set(posts.flatMap((p) => p.data.tags))).sort();
+const allTags = Array.from(new Set(posts.flatMap((p) => p.data.tags.map((t) => t.toLowerCase())))).sort();
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <BaseLayout title="Kloak Blog" description="Announcements, deep dives, and security insights from the Kloak team.">
@@ -61,7 +62,7 @@ const allTags = Array.from(new Set(posts.flatMap((p) => p.data.tags))).sort();
           <h2 class="section-label">Browse by tag</h2>
           <div class="tag-list">
             {allTags.map((tag) => (
-              <a href={`/blog/tag/${tag.toLowerCase()}/`} class="tag-pill">{tag}</a>
+              <a href={`${base}/tag/${tag}/`} class="tag-pill">{tag}</a>
             ))}
           </div>
         </section>

@@ -6,6 +6,7 @@ import FormattedDate from '../components/FormattedDate.astro';
 type Props = CollectionEntry<'blog'>['data'];
 
 const { title, description, pubDate, updatedDate, author, tags } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <BaseLayout title={`${title} — Kloak Blog`} description={description} article publishedTime={pubDate}>
@@ -14,7 +15,7 @@ const { title, description, pubDate, updatedDate, author, tags } = Astro.props;
       {tags.length > 0 && (
         <div class="post-tags">
           {tags.map((tag) => (
-            <a href={`/blog/tag/${tag.toLowerCase()}/`} class="post-tag">{tag}</a>
+            <a href={`${base}/tag/${tag.toLowerCase()}/`} class="post-tag">{tag}</a>
           ))}
         </div>
       )}

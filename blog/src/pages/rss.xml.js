@@ -6,6 +6,8 @@ export async function GET(context) {
     (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
   );
 
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
   return rss({
     title: 'Kloak Blog',
     description: 'Announcements, deep dives, and security insights from the Kloak team.',
@@ -16,7 +18,7 @@ export async function GET(context) {
       pubDate: post.data.pubDate,
       author: post.data.author,
       categories: post.data.tags,
-      link: `/blog/${post.id}/`,
+      link: `${base}/${post.id}/`,
     })),
   });
 }

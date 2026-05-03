@@ -1,8 +1,9 @@
 ---
 const pathname = Astro.url.pathname.replace(/\/$/, '');
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const isBlogIndex = pathname === base || pathname === '';
+const isBlogActive = pathname === base || pathname.startsWith(`${base}/`);
 const logoHref = `${base}/transparent-logo.svg`;
+const blogHref = `${base}/`;
 ---
 
 <header class="site-nav">
@@ -18,7 +19,7 @@ const logoHref = `${base}/transparent-logo.svg`;
           <li><a href="/#how-it-works">How It Works</a></li>
           <li><a href="/#architecture">Architecture</a></li>
           <li><a href="/docs/">Docs</a></li>
-          <li><a href="/blog/" class={isBlogIndex ? 'active' : ''}>Blog</a></li>
+          <li><a href={blogHref} class={isBlogActive ? 'active' : ''}>Blog</a></li>
         </ul>
       </nav>
     </div>
