@@ -19,7 +19,7 @@ Until now, secrets management has focused on two things:
 - Securing secrets at rest
 - Securing the delivery of secrets to applications
 
-A plethora of tools exist in the Kubernetes landscape to help with both. [Vault](https://developer.hashicorp.com/vault) and [OpenBao](https://openbao.org/) act as a secret vault (sealing and encrypting secrets at rest) and as a delivery mechanism through their operators, which avoids secrets being stored in the Kubernetes etcd database. More recently, [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) extended this further by encrypting secrets so they can be safely committed to git, and decrypting them in-cluster only at delivery time.
+A plethora of tools exist in the Kubernetes landscape to help with both. [Vault](https://developer.hashicorp.com/vault) and [OpenBao](https://openbao.org/) act as secret vaults (sealing and encrypting secrets at rest) and as a delivery mechanism through their operators, which avoids secrets being stored in the Kubernetes etcd database. More recently, [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) extended this further by encrypting secrets so they can be safely committed to git, and decrypting them in-cluster only at delivery time.
 
 While all of those tools provide a good solution to secure secrets up to the point of delivery, none of them protect the secret at the application level. In other words, once the secret is delivered to the app, their job is successfully done and the app is entrusted with the secret.
 
@@ -29,9 +29,9 @@ The rapid rise of AI systems has changed three things that affect how we think a
 
 - AI systems have [drastically lowered the bar for finding a zero-day in a given app](https://red.anthropic.com/2026/zero-days/), by multiple orders of magnitude.
 - AI agents are highly stateful and have a memory that, if contaminated with a secret, can persist that secret across many interactions.
-- AI agents are unpredictable, and prompt injection means we cannot guarantee what actions they will perform.
+- AI agents are unpredictable, and prompt injection represents a new security threat that needs to be accounted for.
 
-This bring us to conclude that **applications can no longer be trusted with secrets.** That is the gap Kloak fills. Kloak's goal is to complement existing tools by ensuring secrets are never handed to the app.
+This brings us to conclude that **applications can no longer be trusted with secrets.** That is the gap Kloak fills. Kloak's goal is to complement existing tools by ensuring secrets are never handed to the app.
 
 ## How?
 
@@ -43,7 +43,7 @@ Kloak has three guiding principles:
 
 To achieve this, Kloak leverages the Kubernetes controller pattern to intercept Secret resources and workloads, and mutates them so that real secrets never make their way to the app environment. Instead, a shadow secret is injected.
 
-In addition, Kloak attaches to various eBPF hooks in the application and network layer and listens to the app's behavior, with the goal of detecting the use of the shadow secret when the app uses the secret to authenticate with an allowed host.
+In addition, Kloak attaches to various eBPF hooks in the application and network layer and listens to the app's behavior, with the goal of detecting when the app uses the shadow secret to authenticate with an allowed host.
 
 Finally, Kloak replaces the secret in the kernel-space TCP buffer after TLS encryption, so that the application never has access to the real value.
 
