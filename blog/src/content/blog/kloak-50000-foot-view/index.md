@@ -47,6 +47,8 @@ In addition, Kloak attaches to various eBPF hooks in the application and network
 
 Finally, Kloak replaces the secret in the kernel-space TCP buffer after TLS encryption, so that the application never has access to the real value.
 
+![On a Kubernetes node, the application in user space holds only the shadow secret. The shadow value travels into kernel space, where the TCP buffer eBPF hook swaps it for the real secret before the packet leaves the node toward the allowed destination host.](./runtime-flow.png)
+
 ## More to come soon
 
 Next, we will publish a more detailed post that explains the technical underpinnings of Kloak and how it ensures applications never have access to secrets.
