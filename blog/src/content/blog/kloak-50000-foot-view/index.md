@@ -27,7 +27,7 @@ While all of those tools provide a good solution to secure secrets up to the poi
 
 The rapid rise of AI systems has changed three things that affect how we think about secrets:
 
-- AI systems have drastically lowered the bar for finding a zero-day in a given app, by multiple orders of magnitude.
+- AI systems have [drastically lowered the bar for finding a zero-day in a given app](https://red.anthropic.com/2026/zero-days/), by multiple orders of magnitude.
 - AI agents are highly stateful and have a memory that, if contaminated with a secret, can persist that secret across many interactions.
 - AI agents are unpredictable; we cannot guarantee what actions they will perform.
 
