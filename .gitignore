@@ -19,3 +19,10 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Local agent / tooling state
+.claude/
+.playwright-mcp/
+
+# Local dev screenshots at repo root
+/*.png

@@ -1,0 +1,86 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PostCard from '../../components/PostCard.astro';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog', ({ data }) => !data.draft);
+  const tags = Array.from(new Set(posts.flatMap((p) => p.data.tags.map((t) => t.toLowerCase()))));
+
+  return tags.map((tag) => ({
+    params: { tag },
+    props: {
+      tag,
+      posts: posts
+        .filter((p) => p.data.tags.map((t) => t.toLowerCase()).includes(tag))
+        .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()),
+    },
+  }));
+}
+
+const { tag, posts } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const blogHref = `${base}/`;
+---
+
+<BaseLayout title={`${tag} — Kloak Blog`} description={`Posts tagged ${tag}`}>
+  <section class="tag-hero container">
+    <a href={blogHref} class="back-link">← All posts</a>
+    <h1 class="tag-title">
+      <span class="tag-label">Tag:</span> {tag}
+    </h1>
+    <p class="tag-count">{posts.length} {posts.length === 1 ? 'post' : 'posts'}</p>
+  </section>
+
+  <section class="container tag-posts">
+    <div class="post-grid">
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .tag-hero {
+    padding: 4rem 0 2rem;
+  }
+
+  .back-link {
+    display: inline-block;
+    color: var(--color-text-muted);
+    font-size: 0.9375rem;
+    margin-bottom: 1.5rem;
+    transition: color 150ms ease;
+  }
+
+  .back-link:hover {
+    color: var(--color-primary-light);
+  }
+
+  .tag-title {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.5rem;
+    text-transform: capitalize;
+  }
+
+  .tag-label {
+    color: var(--color-text-muted);
+    font-weight: 500;
+  }
+
+  .tag-count {
+    color: var(--color-text-muted);
+    font-size: 0.9375rem;
+  }
+
+  .tag-posts {
+    padding-bottom: 4rem;
+  }
+
+  .post-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
+</style>
