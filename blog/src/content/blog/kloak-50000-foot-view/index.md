@@ -29,13 +29,13 @@ The rapid rise of AI systems has changed three things that affect how we think a
 
 - AI systems have [drastically lowered the bar for finding a zero-day in a given app](https://red.anthropic.com/2026/zero-days/), by multiple orders of magnitude.
 - AI agents are highly stateful and have a memory that, if contaminated with a secret, can persist that secret across many interactions.
-- AI agents are unpredictable; we cannot guarantee what actions they will perform.
+- AI agents are unpredictable, and prompt injection means we cannot guarantee what actions they will perform.
 
 This bring us to conclude that **applications can no longer be trusted with secrets.** That is the gap Kloak fills. Kloak's goal is to complement existing tools by ensuring secrets are never handed to the app.
 
 ## How?
 
-Kloak has three requirements:
+Kloak has three guiding principles:
 
 - A secret cannot be visible to the app, neither in its environment nor in its memory.
 - Secrets can only be sent to the hosts they are meant to reach.
