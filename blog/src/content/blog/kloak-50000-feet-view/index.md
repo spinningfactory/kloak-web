@@ -1,5 +1,5 @@
 ---
-title: 'Kloak: a 50,000-foot view'
+title: 'Kloak: a 50,000-feet view'
 description: 'How Kloak keeps secrets out of your application''s memory, even from the application itself'
 pubDate: 2026-05-03
 author: 'Kloak Team'
