@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to GitHub Pages at `getkloak.io`:
+Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to Cloudflare Pages at `getkloak.io`:
 
 - **Landing page** (`/website/`) — static HTML/CSS/JS, no build system
 - **Documentation site** (`/docs/`) — VitePress (Vue-based static site generator)
@@ -32,14 +32,22 @@ cd blog && npm run preview  # Preview production build locally
 
 The landing page has no build step — edit HTML/CSS/JS directly in `/website/`.
 
+To produce the full deployable site locally, run the same script Cloudflare Pages runs:
+
+```bash
+bash build.sh   # outputs the full assembled site at _site/
+```
+
 ## Architecture
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/deploy.yml`) triggers on push to `main`:
-1. Builds the VitePress docs and the Astro blog
-2. Assembles `_site/` — copies `/website/` to root, `/docs/.vitepress/dist/` to `_site/docs/`, `/blog/dist/` to `_site/blog/`
-3. Deploys to GitHub Pages with CNAME `getkloak.io`
+Cloudflare Pages is connected to this repo. On every push to `main`, Cloudflare runs `bash build.sh` and serves the resulting `_site/` directory at `getkloak.io`. PRs auto-deploy to preview URLs at `<branch-or-pr>.kloak-web.pages.dev`.
+
+- **Build entry point:** `build.sh` at repo root — builds VitePress docs, Astro blog, then assembles `_site/`
+- **Node version:** pinned via `.nvmrc` (Node 20)
+- **Security headers:** `_headers` at repo root, copied into `_site/` by `build.sh`, applied by Cloudflare Pages
+- **Custom domain:** `getkloak.io` (configured in the Cloudflare Pages dashboard, not via a CNAME file)
 
 ### Documentation Site (`/docs/`)
 
@@ -66,7 +74,7 @@ GitHub Actions (`.github/workflows/deploy.yml`) triggers on push to `main`:
 
 ## Key Details
 
-- Node 20 is used in CI
+- Node 20 is used in CI (pinned via `.nvmrc`)
 - VitePress base path is `/docs/` — all internal doc links must account for this
 - The site uses dark mode only (configured in VitePress and custom CSS)
 - Brand color is teal/blue (`#1782CE`)
