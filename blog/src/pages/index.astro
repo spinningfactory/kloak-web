@@ -1,0 +1,202 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PostCard from '../components/PostCard.astro';
+
+const posts = (await getCollection('blog', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf()
+);
+
+const [featured, ...rest] = posts;
+const allTags = Array.from(new Set(posts.flatMap((p) => p.data.tags))).sort();
+---
+
+<BaseLayout title="Kloak Blog" description="Announcements, deep dives, and security insights from the Kloak team.">
+  <section class="blog-hero">
+    <div class="blog-hero-bg">
+      <div class="blog-hero-gradient"></div>
+    </div>
+    <div class="container">
+      <div class="blog-hero-inner">
+        <span class="blog-hero-eyebrow">
+          <span class="blog-hero-dot"></span>
+          The Kloak Blog
+        </span>
+        <h1 class="blog-hero-title">
+          Notes from the <span class="blog-hero-gradient-text">kernel</span>
+        </h1>
+        <p class="blog-hero-description">
+          Announcements, technical deep dives, and security insights from the team building Kloak.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  {posts.length === 0 ? (
+    <section class="container">
+      <div class="empty-state">
+        <p>No posts yet. Check back soon.</p>
+      </div>
+    </section>
+  ) : (
+    <>
+      {featured && (
+        <section class="blog-featured container">
+          <h2 class="section-label">Latest</h2>
+          <PostCard post={featured} featured />
+        </section>
+      )}
+
+      {rest.length > 0 && (
+        <section class="blog-list container">
+          <h2 class="section-label">All posts</h2>
+          <div class="post-grid">
+            {rest.map((post) => <PostCard post={post} />)}
+          </div>
+        </section>
+      )}
+
+      {allTags.length > 0 && (
+        <section class="blog-tags container">
+          <h2 class="section-label">Browse by tag</h2>
+          <div class="tag-list">
+            {allTags.map((tag) => (
+              <a href={`/blog/tag/${tag.toLowerCase()}/`} class="tag-pill">{tag}</a>
+            ))}
+          </div>
+        </section>
+      )}
+    </>
+  )}
+</BaseLayout>
+
+<style>
+  .blog-hero {
+    position: relative;
+    padding: 6rem 0 4rem;
+    overflow: hidden;
+  }
+
+  .blog-hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+  }
+
+  .blog-hero-gradient {
+    position: absolute;
+    top: -50%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 150%;
+    height: 150%;
+    background: var(--gradient-hero);
+    opacity: 0.8;
+  }
+
+  .blog-hero-inner {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .blog-hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    background: rgba(23, 130, 206, 0.1);
+    border: 1px solid rgba(23, 130, 206, 0.25);
+    border-radius: 9999px;
+    color: var(--color-primary-light);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+  }
+
+  .blog-hero-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-primary-light);
+    box-shadow: 0 0 0 4px rgba(72, 162, 232, 0.2);
+  }
+
+  .blog-hero-title {
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+  }
+
+  .blog-hero-gradient-text {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .blog-hero-description {
+    font-size: 1.25rem;
+    color: var(--color-text-secondary);
+    line-height: 1.55;
+  }
+
+  .section-label {
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .blog-featured {
+    margin-bottom: 4rem;
+  }
+
+  .blog-list {
+    margin-bottom: 4rem;
+  }
+
+  .post-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .blog-tags {
+    margin-bottom: 4rem;
+  }
+
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+  }
+
+  .tag-pill {
+    display: inline-block;
+    padding: 0.4rem 0.9rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+  }
+
+  .tag-pill:hover {
+    border-color: rgba(23, 130, 206, 0.4);
+    color: var(--color-primary-light);
+    background: rgba(23, 130, 206, 0.08);
+  }
+
+  .empty-state {
+    padding: 4rem 1rem;
+    text-align: center;
+    color: var(--color-text-muted);
+  }
+</style>

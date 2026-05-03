@@ -1,0 +1,26 @@
+---
+const pathname = Astro.url.pathname.replace(/\/$/, '');
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const isBlogIndex = pathname === base || pathname === '';
+const logoHref = `${base}/transparent-logo.svg`;
+---
+
+<header class="site-nav">
+  <div class="container">
+    <div class="site-nav-inner">
+      <a href="/" class="site-brand">
+        <img src={logoHref} alt="" />
+        <span>LOAK</span>
+      </a>
+      <nav>
+        <ul class="site-nav-links">
+          <li><a href="/#features">Features</a></li>
+          <li><a href="/#how-it-works">How It Works</a></li>
+          <li><a href="/#architecture">Architecture</a></li>
+          <li><a href="/docs/">Docs</a></li>
+          <li><a href="/blog/" class={isBlogIndex ? 'active' : ''}>Blog</a></li>
+        </ul>
+      </nav>
+    </div>
+  </div>
+</header>
