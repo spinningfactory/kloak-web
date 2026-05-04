@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to GitHub Pages at `getkloak.io`:
+Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to Cloudflare Workers (Static Assets) at `getkloak.io`:
 
 - **Landing page** (`/website/`) — static HTML/CSS/JS, no build system
 - **Documentation site** (`/docs/`) — VitePress (Vue-based static site generator)
@@ -32,14 +32,23 @@ cd blog && npm run preview  # Preview production build locally
 
 The landing page has no build step — edit HTML/CSS/JS directly in `/website/`.
 
+To produce the full deployable site locally, run the same script Cloudflare Pages runs:
+
+```bash
+bash build.sh   # outputs the full assembled site at _site/
+```
+
 ## Architecture
 
 ### Deployment
 
-GitHub Actions (`.github/workflows/deploy.yml`) triggers on push to `main`:
-1. Builds the VitePress docs and the Astro blog
-2. Assembles `_site/` — copies `/website/` to root, `/docs/.vitepress/dist/` to `_site/docs/`, `/blog/dist/` to `_site/blog/`
-3. Deploys to GitHub Pages with CNAME `getkloak.io`
+A Cloudflare Workers project (Static Assets path, in the unified Workers & Pages dashboard) is connected to this repo. On every push to a watched branch, Cloudflare runs `bash build.sh` and uploads the resulting `_site/` directory. Production is `main` → `getkloak.io`. Other branches deploy to preview URLs.
+
+- **Build entry point:** `build.sh` at repo root — builds VitePress docs, Astro blog, then assembles `_site/`
+- **Assets directory:** declared in `wrangler.jsonc` as `assets.directory: ./_site` (Workers Static Assets reads this; the dashboard UI does not have a separate "Build output directory" field)
+- **Node version:** pinned via `.nvmrc` (Node 20)
+- **Security headers:** `_headers` at repo root, copied into `_site/` by `build.sh`, applied automatically
+- **Custom domain:** `getkloak.io` (configured in the Cloudflare Workers project's Settings → Domains & Routes)
 
 ### Documentation Site (`/docs/`)
 
@@ -66,7 +75,7 @@ GitHub Actions (`.github/workflows/deploy.yml`) triggers on push to `main`:
 
 ## Key Details
 
-- Node 20 is used in CI
+- Node 20 is used in CI (pinned via `.nvmrc`)
 - VitePress base path is `/docs/` — all internal doc links must account for this
 - The site uses dark mode only (configured in VitePress and custom CSS)
 - Brand color is teal/blue (`#1782CE`)

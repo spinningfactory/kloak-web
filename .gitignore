@@ -1,9 +1,16 @@
 # Dependencies
 node_modules/
 
+# Build output
+_site/
+
 # VitePress
 .vitepress/cache/
 .vitepress/dist/
+
+# Astro
+blog/dist/
+blog/.astro/
 
 # System files
 .DS_Store

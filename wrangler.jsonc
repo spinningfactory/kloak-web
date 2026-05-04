@@ -1,0 +1,10 @@
+{
+  // Cloudflare Workers (Static Assets) config for kloak-web.
+  // The site is deployed via the Workers + Static Assets path (unified Workers & Pages UI).
+  // Docs: https://developers.cloudflare.com/workers/static-assets/
+  "name": "kloak-web",
+  "compatibility_date": "2026-05-03",
+  "assets": {
+    "directory": "./_site"
+  }
+}
