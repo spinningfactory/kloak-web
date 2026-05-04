@@ -1,8 +1,10 @@
 {
-  // Cloudflare Pages config for kloak-web.
-  // The "Build output directory" UI field has moved into this file.
-  // Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+  // Cloudflare Workers (Static Assets) config for kloak-web.
+  // The site is deployed via the Workers + Static Assets path (unified Workers & Pages UI).
+  // Docs: https://developers.cloudflare.com/workers/static-assets/
   "name": "kloak-web",
   "compatibility_date": "2026-05-03",
-  "pages_build_output_dir": "./_site"
+  "assets": {
+    "directory": "./_site"
+  }
 }

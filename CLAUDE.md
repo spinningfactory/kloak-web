@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to Cloudflare Pages at `getkloak.io`:
+Kloak Web is the website and documentation for [Kloak](https://github.com/spinningfactory/kloak), a Kubernetes eBPF secret interceptor. The repo contains three independently structured sites deployed together to Cloudflare Workers (Static Assets) at `getkloak.io`:
 
 - **Landing page** (`/website/`) — static HTML/CSS/JS, no build system
 - **Documentation site** (`/docs/`) — VitePress (Vue-based static site generator)
@@ -42,13 +42,13 @@ bash build.sh   # outputs the full assembled site at _site/
 
 ### Deployment
 
-Cloudflare Pages is connected to this repo. On every push to `main`, Cloudflare runs `bash build.sh` and serves the resulting `_site/` directory at `getkloak.io`. PRs auto-deploy to preview URLs at `<branch-or-pr>.kloak-web.pages.dev`.
+A Cloudflare Workers project (Static Assets path, in the unified Workers & Pages dashboard) is connected to this repo. On every push to a watched branch, Cloudflare runs `bash build.sh` and uploads the resulting `_site/` directory. Production is `main` → `getkloak.io`. Other branches deploy to preview URLs.
 
 - **Build entry point:** `build.sh` at repo root — builds VitePress docs, Astro blog, then assembles `_site/`
-- **Output directory:** declared in `wrangler.jsonc` as `pages_build_output_dir: ./_site` (the Cloudflare UI no longer has a separate field for this)
+- **Assets directory:** declared in `wrangler.jsonc` as `assets.directory: ./_site` (Workers Static Assets reads this; the dashboard UI does not have a separate "Build output directory" field)
 - **Node version:** pinned via `.nvmrc` (Node 20)
-- **Security headers:** `_headers` at repo root, copied into `_site/` by `build.sh`, applied by Cloudflare Pages
-- **Custom domain:** `getkloak.io` (configured in the Cloudflare Pages dashboard, not via a CNAME file)
+- **Security headers:** `_headers` at repo root, copied into `_site/` by `build.sh`, applied automatically
+- **Custom domain:** `getkloak.io` (configured in the Cloudflare Workers project's Settings → Domains & Routes)
 
 ### Documentation Site (`/docs/`)
 
