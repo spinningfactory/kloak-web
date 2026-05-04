@@ -45,6 +45,7 @@ bash build.sh   # outputs the full assembled site at _site/
 Cloudflare Pages is connected to this repo. On every push to `main`, Cloudflare runs `bash build.sh` and serves the resulting `_site/` directory at `getkloak.io`. PRs auto-deploy to preview URLs at `<branch-or-pr>.kloak-web.pages.dev`.
 
 - **Build entry point:** `build.sh` at repo root — builds VitePress docs, Astro blog, then assembles `_site/`
+- **Output directory:** declared in `wrangler.jsonc` as `pages_build_output_dir: ./_site` (the Cloudflare UI no longer has a separate field for this)
 - **Node version:** pinned via `.nvmrc` (Node 20)
 - **Security headers:** `_headers` at repo root, copied into `_site/` by `build.sh`, applied by Cloudflare Pages
 - **Custom domain:** `getkloak.io` (configured in the Cloudflare Pages dashboard, not via a CNAME file)

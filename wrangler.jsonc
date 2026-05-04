@@ -1,0 +1,8 @@
+{
+  // Cloudflare Pages config for kloak-web.
+  // The "Build output directory" UI field has moved into this file.
+  // Docs: https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+  "name": "kloak-web",
+  "compatibility_date": "2026-05-03",
+  "pages_build_output_dir": "./_site"
+}
