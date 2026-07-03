@@ -19,7 +19,7 @@ The controller runs as a DaemonSet -- one pod per node -- so all BPF map limits 
 | Limit | Value | Scope | Constant | Description |
 |---|---|---|---|---|
 | Max hostname length | **64 characters** | Per hostname | `MAX_HOST_LEN` | Hostnames longer than 64 characters are truncated in BPF maps. |
-| Hosts per secret | **1** | Per secret | `allowed_host` field | Only the first hostname in a comma-separated `getkloak.io/hosts` list is enforced ([#102](https://github.com/spinningfactory/kloak/issues/102)). |
+| Hosts per secret | **1** | Per secret | `allowed_host` field | `getkloak.io/hosts` takes a single hostname, IP, or `*`. A comma-separated value is rejected by the validating webhook ([#102](https://github.com/spinningfactory/kloak/issues/102)). |
 | Max watched hostnames | **256** | Per node | `watched_hosts` max entries | Total unique hostnames from all secrets that DNS responses are captured for. |
 | Max DNS cache entries | **8192** | Per node | `dns_ip_map` max entries | LRU cache of DNS-verified IP → hostname mappings. Oldest entries evicted when full. |
 | Max DNS answers parsed | **8** | Per DNS response | `MAX_DNS_ANSWERS` | A/AAAA records parsed per DNS response packet. |

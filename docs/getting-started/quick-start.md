@@ -198,14 +198,12 @@ In Step 2, you added the label `getkloak.io/hosts: "httpbin.org"`. This tells Kl
 
 If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kloak:...` ULID instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
 
-To allow multiple hosts, use a comma-separated list:
+`getkloak.io/hosts` takes a single hostname (or a single IP, or `*` for any).
+Multiple hosts per secret are not supported yet — a comma-separated value is
+rejected by the validating webhook. Use one secret per host for now
+([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
 
-```yaml
-labels:
-  getkloak.io/hosts: "httpbin.org,api.staging.example.com"
-```
-
-To allow a secret to be sent to any host, omit the `getkloak.io/hosts` label entirely.
+To allow a secret to be sent to any host, omit the `getkloak.io/hosts` label entirely (or set it to `*`).
 
 ## Clean Up
 

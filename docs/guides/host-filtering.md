@@ -18,7 +18,7 @@ Without host filtering, Kloak protects secrets from being visible in application
 
 ## Configuring Host Filtering
 
-Add the `getkloak.io/hosts` label to your Secret with a comma-separated list of allowed hostnames:
+Add the `getkloak.io/hosts` label to your Secret with a single allowed hostname or IP:
 
 ```yaml
 apiVersion: v1
@@ -48,17 +48,18 @@ kubectl create secret generic stripe-api-key \
 
 ### Multiple Allowed Hosts
 
-Separate multiple hostnames with commas:
-
-```yaml
-metadata:
-  labels:
-    getkloak.io/enabled: "true"
-    getkloak.io/hosts: "api.stripe.com,api.stripe.com:443"
-```
-
 ::: warning
-Currently, only the **first** host in the comma-separated list is enforced in the eBPF map ([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
+Multiple hosts per secret are **not supported yet**. `getkloak.io/hosts` accepts a
+single hostname, a single IP, or `*` (any). A comma-separated value is **rejected**
+by the validating webhook; if the webhook is not installed, the whole string is
+treated as one (invalid) hostname that never matches, so the secret is never
+rewritten. To restrict a secret to more than one destination today, create a
+separate secret per host. Multi-host support is tracked in
+[spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102).
+
+To filter by port instead of (or in addition to) host, use the separate
+`getkloak.io/port` label (e.g. `"443"` or `"443/tcp"`) — a port cannot be
+appended to the hostname.
 :::
 
 ### No Host Filter (Wildcard)

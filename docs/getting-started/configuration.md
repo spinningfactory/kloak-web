@@ -164,11 +164,12 @@ The `getkloak.io/hosts` label on a secret controls which TLS destinations receiv
 
 ```yaml
 labels:
-  getkloak.io/hosts: "api.example.com"                    # Single host
-  getkloak.io/hosts: "api.example.com,cdn.example.com"    # Multiple hosts
+  getkloak.io/hosts: "api.example.com"   # Single host, single IP, or "*" (any)
 ```
 
-When a TLS write is intercepted, the eBPF program resolves the destination hostname via the DNS-verified trust chain (DNS capture -> connection tracking -> host resolution). If the resolved hostname does not match the allowed hosts list, the placeholder is **not** replaced -- the remote server receives the harmless `kloak:...` ULID. See the [Host Filtering guide](/guides/host-filtering) for details.
+A single value only — a comma-separated list is not supported yet and is rejected by the validating webhook (see [spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
+
+When a TLS write is intercepted, the eBPF program resolves the destination hostname via the DNS-verified trust chain (DNS capture -> connection tracking -> host resolution). If the resolved hostname does not match the allowed host, the placeholder is **not** replaced -- the remote server receives the harmless `kloak:...` ULID. See the [Host Filtering guide](/guides/host-filtering) for details.
 
 Omitting `getkloak.io/hosts` allows the secret to be sent to any destination.
 
