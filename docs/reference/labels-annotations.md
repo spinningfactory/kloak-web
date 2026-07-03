@@ -11,7 +11,7 @@ Kloak uses Kubernetes labels and annotations to control which secrets are protec
 | `getkloak.io/enabled` | Label | Pod | Enables Kloak for this pod. The webhook's `objectSelector` matches pods with this label. |
 | `getkloak.io/enabled` | Annotation | Pod | Injected by the webhook on mutated pods. Read by the controller to attach eBPF uprobes. Do not set manually. |
 | `getkloak.io/enabled` | Label | Namespace | Enables Kloak for all pods in this namespace. The webhook's `namespaceSelector` matches namespaces with this label. |
-| `getkloak.io/hosts` | Label | Secret | Comma-separated list of allowed TLS destination hostnames. |
+| `getkloak.io/hosts` | Label | Secret | A single allowed TLS destination hostname, IP, or `*` (any). Multiple hosts are not supported yet ([#102](https://github.com/spinningfactory/kloak/issues/102)). |
 | `getkloak.io/port` | Label | Secret | Allowed destination port for secret transmission (e.g., `443`). If omitted, all ports are allowed. |
 | `getkloak.io/managed` | Label | Secret (shadow) | Automatically set by Kloak on shadow secrets. Do not set manually. |
 | `getkloak.io/owner` | Label | Secret (shadow) | Name of the original secret. Automatically set by Kloak. Do not set manually. |
@@ -93,7 +93,7 @@ Restricts which TLS destination hostnames are allowed to receive the real secret
 
 **Type:** Label
 **Applies to:** Secret
-**Format:** Comma-separated hostnames (no wildcards, no ports)
+**Format:** A single hostname, a single IP, or `*` (any). No ports (use `getkloak.io/port`).
 
 ```yaml
 metadata:
@@ -102,21 +102,16 @@ metadata:
     getkloak.io/hosts: "api.stripe.com"
 ```
 
-Multiple hosts:
-
-```yaml
-metadata:
-  labels:
-    getkloak.io/enabled: "true"
-    getkloak.io/hosts: "api.stripe.com,dashboard.stripe.com"
-```
-
 **Behavior:**
-- If the label is **present**: only connections to the specified hostname(s) receive the real value. All other destinations see the `kloak:<ULID>` placeholder.
-- If the label is **absent** or empty: the secret is allowed for all destinations (wildcard).
+- If the label is **present**: only connections to the specified host receive the real value. All other destinations see the `kloak:<ULID>` placeholder.
+- If the label is **absent**, empty, or `*`: the secret is allowed for all destinations (wildcard).
 
 ::: warning
-Currently, only the first hostname in the comma-separated list is enforced in the eBPF map ([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
+Multiple hosts per secret are **not supported yet**. A comma-separated value is
+**rejected** by the validating webhook; if the webhook is not installed, the whole
+string is treated as one (invalid) hostname that never matches, so the secret is
+never rewritten. Use one secret per host for now. Tracked in
+[spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102).
 :::
 
 ::: tip
