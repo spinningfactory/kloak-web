@@ -22,7 +22,7 @@ Your OpenClaw gateway reads `kl::` placeholders from mounted secret files. When 
 
 ## Prerequisites
 
-- A running Kubernetes cluster (1.28+, Linux kernel 6.6+) with [Kloak installed](/getting-started/installation)
+- A running Kubernetes cluster (1.28+, Linux kernel 5.17+) with [Kloak installed](/getting-started/installation)
 - `kubectl` configured and pointed at your cluster
 - An Anthropic API key, plus optionally OpenAI and/or Google Gemini keys
 

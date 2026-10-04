@@ -70,7 +70,7 @@ A kprobe on `tcp_sendmsg` fires when the TLS library sends the encrypted data:
 
 #### Stage 3: TC -- Patch Ciphertext
 
-A tc (traffic control) program attached via TCX at tc ingress on the **host-side veth peer** of the pod's egress interface intercepts the pod's outbound packets as they leave the pod. Patching outside the pod keeps the rewritten ciphertext out of reach of in-pod packet capture. Interfaces with no veth peer (e.g. `hostNetwork` pods) fall back to tc egress inside the pod netns, where a container with `CAP_NET_RAW` could capture the patched ciphertext -- drop `NET_RAW` for such workloads. Loopback is never patched, so same-pod traffic receives the placeholder.
+A tc (traffic control) program attached at tc ingress on the **host-side veth peer** (as a TCX link on Linux 6.6+, or a `clsact` + `cls_bpf` filter on older kernels) of the pod's egress interface intercepts the pod's outbound packets as they leave the pod. Patching outside the pod keeps the rewritten ciphertext out of reach of in-pod packet capture. Interfaces with no veth peer (e.g. `hostNetwork` pods) fall back to tc egress inside the pod netns, where a container with `CAP_NET_RAW` could capture the patched ciphertext -- drop `NET_RAW` for such workloads. Loopback is never patched, so same-pod traffic receives the placeholder.
 
 1. Looks up `tc_pending` by matching the packet's destination IP, source port, and cgroup
 2. For each patch, XORs the corresponding ciphertext bytes: `CT_real = CT_shadow XOR xor_delta`

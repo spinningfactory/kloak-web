@@ -4,15 +4,19 @@ Kloak uses eBPF uprobes, kprobes, and tc programs that require specific kernel a
 
 ## Kernel Requirements
 
-### Minimum: Linux 6.6+
+### Minimum: Linux 5.17+
 
-Kloak requires Linux kernel **6.6 or later**. There are two hard dependencies:
+Kloak requires Linux kernel **5.17 or later**, for the `bpf_loop` helper used to scan the TLS write buffer for `kl::` placeholders. On older kernels the eBPF programs fail to load.
 
-- The `bpf_loop` helper (kernel 5.17+), used to scan the TLS write buffer for `kl::` placeholders.
-- **TCX** tc links (kernel 6.6+). The program that patches ciphertext is attached with TCX on the host-side veth peer of each pod's egress interface. There is no fallback to legacy tc attachment.
+The program that patches ciphertext is attached on the host-side veth peer of each pod's egress interface. How it's attached depends on the kernel:
 
-::: danger
-On kernels older than 6.6, the tc program cannot be attached. Uprobes may still attach, but the controller logs `Failed to attach tc egress ... secrets will not be rewritten` and applications send the placeholder. On kernels older than 5.17, the eBPF programs fail to load.
+- **Linux 6.6+:** a TCX link (preferred). It is released automatically when the controller stops.
+- **Linux 5.17 – 6.5:** a classic `clsact` qdisc with a direct-action `cls_bpf` filter. The controller falls back to this automatically when the kernel lacks TCX and logs `Kernel does not support TCX`. An existing `clsact` qdisc (for example one a CNI created) is reused, never deleted. Kloak's filter uses priority 1 and a fixed handle, so a restarted controller replaces its previous filter instead of adding a second one. Filters are removed when the controller shuts down cleanly; after a crash they stay until the controller re-attaches or the pod's interface is deleted, and do nothing in the meantime.
+
+Set `controller.ebpf.tcAttachMode` (`--tc-attach-mode`) to `tcx` to require TCX, or `clsact` to always use the classic filter. The default is `auto`.
+
+::: warning CNIs that use tc on the pod's host-side interface
+On the `clsact` path, Kloak's filter shares the interface's tc ingress hook with any filters your CNI installs there (for example Cilium in its legacy tc mode). Kloak uses priority 1 so its filter runs before CNI filters at later priorities; a filter that redirects the packet ends the chain, so anything after it never runs. If the CNI also uses priority 1, the order between the two isn't guaranteed, and if it uses priority 1 with a different filter type or protocol, Kloak's attach fails and that pod's secrets are not rewritten (the controller logs the error). TCX runs before all classic filters and avoids this, so prefer a 6.6+ kernel where you can.
 :::
 
 ### Required Kernel Features
@@ -28,7 +32,8 @@ The following kernel configuration options must be enabled (they are enabled by 
 | `CONFIG_KPROBES` | Kernel probes (`udp_recvmsg` for DNS capture, `tcp_sendmsg` for patch handoff) |
 | `CONFIG_TRACEPOINTS` | Tracepoints (connect/close, process exec/exit tracking) |
 | `CONFIG_BPF_EVENTS` | BPF-based event tracing |
-| `CONFIG_NET_XGRESS` | TCX tc attachment (ciphertext patching) |
+| `CONFIG_NET_CLS_BPF`, `CONFIG_NET_SCH_INGRESS` | Classic tc attachment (`clsact` + `cls_bpf`) on kernels without TCX |
+| `CONFIG_NET_XGRESS` | TCX tc attachment on Linux 6.6+ (ciphertext patching) |
 | `CONFIG_DEBUG_INFO_BTF` | BTF type information for CO-RE |
 
 Verify BTF availability on a node:
@@ -114,19 +119,19 @@ The webhook needs a TLS certificate. Set `certificates.mode` in the chart values
 
 ### Expected to Work
 
-Any distribution is expected to work when the node kernel is **6.6+** with BTF and cgroup v2 enabled. For example:
+Any distribution is expected to work when the node kernel is **5.17+** with BTF and cgroup v2 enabled. Kernels 6.6+ use TCX; older ones use the `clsact` fallback. For example:
 
 | Distribution | Status | Notes |
 |---|---|---|
 | Ubuntu 24.04 LTS | Expected | Ships kernel 6.8 |
-| Ubuntu 22.04 LTS | Expected with HWE kernel | Default kernel 5.15 is too old; the HWE kernel is 6.6+ |
-| Amazon Linux 2023 | Expected with a 6.6+ kernel | The original 6.1 kernel is too old; use a 6.12 kernel |
-| Debian 12 (Bookworm) | Not supported with default kernel | Default kernel 6.1 is too old |
-| Amazon Linux 2 | Not supported | Kernel too old |
-| RHEL / Rocky 9.x | Verify | Kernel reports 5.14 with backports; confirm TCX and `bpf_loop` work before use |
+| Ubuntu 22.04 LTS | Expected with HWE kernel | Default kernel 5.15 is too old; use the HWE kernel |
+| Amazon Linux 2023 | Expected | 6.1 kernels use the `clsact` fallback; 6.12 kernels use TCX |
+| Debian 12 (Bookworm) | Expected | Kernel 6.1, uses the `clsact` fallback |
+| Amazon Linux 2 | Not supported | Kernel 5.10 is older than 5.17 |
+| RHEL / Rocky 9.x | Verify | Kernel reports 5.14 with backports; confirm `bpf_loop` is available before use |
 
 ::: warning
-**Ubuntu 22.04 default kernel (5.15) is NOT compatible.** Install the HWE (Hardware Enablement) kernel and confirm `uname -r` reports 6.6 or later:
+**Ubuntu 22.04 default kernel (5.15) is NOT compatible.** Install the HWE (Hardware Enablement) kernel and confirm `uname -r` reports 5.17 or later:
 ```bash
 sudo apt install linux-generic-hwe-22.04
 ```
@@ -134,7 +139,7 @@ sudo apt install linux-generic-hwe-22.04
 
 ## Cloud Provider Notes
 
-Kloak has not been tested on managed Kubernetes services. It is expected to work on any managed node image whose kernel is **6.6+**, with BTF and cgroup v2. Check the kernel version on your nodes:
+Kloak has not been tested on managed Kubernetes services. It is expected to work on any managed node image whose kernel is **5.17+**, with BTF and cgroup v2. Check the kernel version on your nodes:
 
 ```bash
 kubectl get nodes -o wide  # Check KERNEL-VERSION column
@@ -142,17 +147,17 @@ kubectl get nodes -o wide  # Check KERNEL-VERSION column
 
 ### Amazon EKS
 
-- Use node AMIs with a 6.6+ kernel (for example Amazon Linux 2023 with a 6.12 kernel, or Ubuntu 24.04). Amazon Linux 2 is too old.
+- Use Amazon Linux 2023 or Ubuntu 24.04 node AMIs. Amazon Linux 2 (kernel 5.10) is too old.
 - The webhook Service listens on port 443 and forwards to the webhook pods on **TCP 9443**. The control plane must be able to reach the pods on 9443 (check node security groups).
 
 ### Google GKE
 
 - GKE Autopilot does **not** allow privileged DaemonSets, which Kloak requires. Use GKE Standard.
-- Verify that the node image kernel is 6.6+.
+- Verify that the node image kernel is 5.17+.
 
 ### Azure AKS
 
-- Verify that the node image kernel is 6.6+. Ubuntu 22.04 node images with the 5.15 kernel are too old.
+- Verify that the node image kernel is 5.17+. Ubuntu 22.04 node images with the 5.15 kernel are too old.
 - AKS with Kata Containers / confidential nodes: not supported.
 
 ## Resource Requirements
@@ -188,7 +193,7 @@ kubectl get nodes -o wide  # Check KERNEL-VERSION column
 Run these checks on a node to verify Kloak compatibility:
 
 ```bash
-# 1. Kernel version (must be 6.6+)
+# 1. Kernel version (must be 5.17+; 6.6+ uses TCX)
 uname -r
 
 # 2. BTF availability
@@ -203,5 +208,5 @@ ls /sys/kernel/tracing/uprobe_events 2>/dev/null && \
 ```
 
 ::: tip
-The simplest check is the kernel version: a 6.6+ kernel from a major distribution with BTF and cgroup v2 enabled has all required features.
+The simplest check is the kernel version: a 5.17+ kernel from a major distribution with BTF and cgroup v2 enabled has all required features.
 :::

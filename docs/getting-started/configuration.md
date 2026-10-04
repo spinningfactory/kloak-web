@@ -13,6 +13,7 @@ The controller runs as a DaemonSet on every node. It manages secret reconciliati
 | `--trusted-dns-servers` | *(empty)* | Comma-separated list of trusted DNS server IPs. Only DNS responses from these IPs are used for host filtering. The `kube-dns` cluster IP is always auto-discovered at startup and added to this list. Set via the Helm value `controller.dns.trustedServers` (a YAML list). |
 | `--enable-ebpf` | `false` | Load the eBPF programs and attach TLS uprobes. The Helm chart sets this to `true` (`controller.ebpf.enabled`). |
 | `--egress-interface` | `auto` | Container interface whose host-side veth peer gets the tc patch program. `auto` uses the interface of the container's default IPv4 route; a name pins it; `none` (or `lo-only`) disables the tc program, so no secret is rewritten. Set via `controller.ebpf.egressInterface`. |
+| `--tc-attach-mode` | `auto` | How the tc patch program is attached: `auto` uses TCX on Linux 6.6+ and falls back to a `clsact` qdisc + `cls_bpf` filter on older kernels; `tcx` requires TCX; `clsact` always uses the classic filter. Set via `controller.ebpf.tcAttachMode`. |
 
 ### Environment Variables
 
@@ -204,6 +205,7 @@ Omitting `getkloak.io/hosts` (or setting it to `*`) allows the secret to be sent
 | `log.ebpfLevel` | `""` | eBPF verifier log level (`branch`, `instruction`, `stats`). |
 | `controller.ebpf.enabled` | `true` | Passed as `--enable-ebpf`. |
 | `controller.ebpf.egressInterface` | `auto` | Passed as `--egress-interface`. |
+| `controller.ebpf.tcAttachMode` | `auto` | Passed as `--tc-attach-mode`. |
 | `controller.cgroupPath` | `/host/sys/fs/cgroup` | Passed as `--cgroup-path`. |
 | `controller.dns.trustedServers` | `[]` | Extra trusted DNS server IPs, joined into `--trusted-dns-servers`. |
 | `controller.resources` | see below | |

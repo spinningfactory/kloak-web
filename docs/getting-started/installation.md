@@ -9,7 +9,7 @@ Before installing Kloak, make sure your environment meets the following requirem
 | Requirement | Minimum Version | Notes |
 |---|---|---|
 | Kubernetes | 1.28+ | Tested in CI on k3s; other conformant distributions (EKS, GKE, AKS) are expected to work when the node kernel meets the requirement below |
-| Linux kernel | 6.6+ | Required on worker nodes. `bpf_loop` needs 5.17, and the tc patch program attaches via TCX, which needs 6.6. Kernel BTF must be available. |
+| Linux kernel | 5.17+ | Required on worker nodes (`bpf_loop`). 6.6+ is recommended: the tc patch program attaches via TCX there, and via a classic `clsact` filter on older kernels. Kernel BTF must be available. |
 | Helm | 3.x | Used for installing and managing Kloak |
 | kubectl | 1.28+ | Configured with cluster access |
 | cgroup v2 | Enabled | Most modern distributions enable this by default |
@@ -20,7 +20,7 @@ Run the following on your worker nodes to verify kernel compatibility:
 ```bash
 uname -r
 ```
-The output should show `6.6` or higher (e.g., `6.8.0-45-generic`). On older kernels the controller starts and attaches uprobes, but the tc program fails to attach and no secret is rewritten.
+The output should show `5.17` or higher (e.g., `6.1.0-18-amd64` or `6.8.0-45-generic`). On 5.17 – 6.5 Kloak uses a classic `clsact` tc filter instead of TCX; see [Requirements](/reference/requirements#minimum-linux-5-17) for what that means with your CNI.
 :::
 
 ::: warning eBPF requires privileged access

@@ -81,7 +81,7 @@ The controller DaemonSet requires elevated privileges:
 | Capability | Purpose |
 |---|---|
 | `CAP_BPF` | Load eBPF programs and create BPF maps |
-| `CAP_NET_ADMIN` | Attach the tc patch program to host-side veth peers (TCX) |
+| `CAP_NET_ADMIN` | Attach the tc patch program to host-side veth peers (TCX, or a `clsact` filter on kernels before 6.6) |
 | `CAP_SYS_ADMIN` | Access `/proc/<pid>/` for uprobe attachment, kprobe/tracepoint attachment |
 | `CAP_SYS_RESOURCE` | Increase BPF map memory limits |
 | `hostPID: true` | Resolve container PIDs and access `/proc/<pid>/ns/net` and the root netns (`/proc/1/ns/net`) for tc attachment |
@@ -132,7 +132,7 @@ Kloak is designed to **fail secure** -- if any component fails, the application 
 | Non-AES-GCM cipher (e.g. ChaCha20-Poly1305) | Not rewritten; placeholder sent. |
 | DNS resolution missing | Host cannot be verified. eBPF program does not rewrite -- placeholder sent. |
 | BPF map full | New entries rejected. Existing secrets continue working. New secrets send placeholder. |
-| tc program not attached (e.g. kernel older than 6.6) | XOR delta computed but not applied. Ciphertext contains the placeholder. |
+| tc program not attached (e.g. attach error, or a CNI filter conflict on the `clsact` path) | XOR delta computed but not applied. Ciphertext contains the placeholder. |
 
 ## Known Limitations
 
@@ -158,7 +158,7 @@ Only AES-128-GCM and AES-256-GCM cipher suites (TLS 1.2 and 1.3) are rewritten. 
 
 ### Kernel Version
 
-The tc patch program attaches via TCX, which requires **Linux 6.6+**. On older kernels uprobes may attach but nothing is rewritten.
+Kloak requires **Linux 5.17+**. On 6.6+ the tc patch program attaches via TCX. On 5.17 – 6.5 it attaches as a classic `clsact` filter, which shares the interface's tc hook with any CNI filters there; see [Requirements](/reference/requirements#minimum-linux-5-17).
 
 ### Same-Pod and hostNetwork Traffic
 
