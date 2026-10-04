@@ -79,4 +79,5 @@ A Cloudflare Workers project (Static Assets path, in the unified Workers & Pages
 - VitePress base path is `/docs/` — all internal doc links must account for this
 - The site uses dark mode only (configured in VitePress and custom CSS)
 - Brand color is teal/blue (`#1782CE`)
-- Kloak uses ULIDs (not UUIDs) throughout documentation
+- Kloak placeholders are `kl::` followed by random characters, with the same byte length (and HPACK Huffman bit length) as the real value. Not ULIDs, UUIDs, or hashes. Generate realistic examples with kloak's own generator rather than inventing them.
+- `getkloak.io/enabled` is a label; `getkloak.io/hosts` and `getkloak.io/port` are annotations (the validating webhook rejects them as labels).

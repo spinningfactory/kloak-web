@@ -1,39 +1,34 @@
 # System Requirements
 
-Kloak uses eBPF uprobes with advanced features that require specific kernel and Kubernetes versions. This page details the minimum requirements and tested configurations.
+Kloak uses eBPF uprobes, kprobes, and tc programs that require specific kernel and Kubernetes versions. This page details the minimum requirements and tested configurations.
 
 ## Kernel Requirements
 
-### Minimum: Linux 5.17+
+### Minimum: Linux 6.6+
 
-Kloak requires Linux kernel **5.17 or later**. The hard dependency is the `bpf_loop` helper function, which was introduced in kernel 5.17. This helper is used in the eBPF rewrite program to iterate over the TLS write buffer scanning for `kloak:` prefixes.
+Kloak requires Linux kernel **6.6 or later**. There are two hard dependencies:
+
+- The `bpf_loop` helper (kernel 5.17+), used to scan the TLS write buffer for `kl::` placeholders.
+- **TCX** tc links (kernel 6.6+). The program that patches ciphertext is attached with TCX on the host-side veth peer of each pod's egress interface. There is no fallback to legacy tc attachment.
 
 ::: danger
-Kernels older than 5.17 will fail to load the eBPF programs. The controller will log a verifier error and the pod reconciler will not be able to attach uprobes.
+On kernels older than 6.6, the tc program cannot be attached. Uprobes may still attach, but the controller logs `Failed to attach tc egress ... secrets will not be rewritten` and applications send the placeholder. On kernels older than 5.17, the eBPF programs fail to load.
 :::
-
-### Recommended: Linux 6.1+
-
-Kernel **6.1+** is recommended for production use. Kloak has been tested most extensively on 6.1+ kernels, which include:
-
-- Improved BPF verifier performance and memory limits
-- Better BTF (BPF Type Format) support
-- Ring buffer reliability improvements
-- Stable uprobe behavior across process lifecycle
 
 ### Required Kernel Features
 
-The following kernel configuration options must be enabled (they are enabled by default on all major distributions):
+The following kernel configuration options must be enabled (they are enabled by default on major distributions):
 
 | Config Option | Purpose |
 |---|---|
 | `CONFIG_BPF` | Base BPF support |
 | `CONFIG_BPF_SYSCALL` | BPF system call |
 | `CONFIG_BPF_JIT` | JIT compilation for BPF programs |
-| `CONFIG_UPROBES` | User-space probes (uprobe attachment) |
-| `CONFIG_KPROBES` | Kernel probes (kprobe on `udp_recvmsg` for DNS capture) |
-| `CONFIG_TRACEPOINTS` | Tracepoints (connect/close tracking) |
+| `CONFIG_UPROBES` | User-space probes (uprobes/uretprobes on TLS libraries) |
+| `CONFIG_KPROBES` | Kernel probes (`udp_recvmsg` for DNS capture, `tcp_sendmsg` for patch handoff) |
+| `CONFIG_TRACEPOINTS` | Tracepoints (connect/close, process exec/exit tracking) |
 | `CONFIG_BPF_EVENTS` | BPF-based event tracing |
+| `CONFIG_NET_XGRESS` | TCX tc attachment (ciphertext patching) |
 | `CONFIG_DEBUG_INFO_BTF` | BTF type information for CO-RE |
 
 Verify BTF availability on a node:
@@ -44,29 +39,36 @@ ls /sys/kernel/btf/vmlinux
 
 If the file exists, BTF is available and Kloak can use CO-RE (Compile Once, Run Everywhere) to adapt to the running kernel.
 
+### cgroup v2
+
+Nodes must use the **cgroup v2** (unified) hierarchy. The controller locates pod containers under the `kubepods` cgroup in `/sys/fs/cgroup`.
+
+```bash
+stat -fc %T /sys/fs/cgroup   # must print cgroup2fs
+```
+
 ## Kubernetes Requirements
 
 ### Minimum: Kubernetes 1.28+
 
-Kloak requires Kubernetes **1.28 or later**. Key dependencies:
-
-- **Mutating Admission Webhooks v1** -- stable since Kubernetes 1.16, but Kloak uses `admissionReviewVersions: ["v1"]` features stabilized in later versions
-- **Namespace selectors on webhooks** -- used to target only `getkloak.io/enabled=true` namespaces
-- **Pod Security Standards** -- Kloak's controller DaemonSet requires `privileged` security context, which is properly supported in 1.28+
+Kloak requires Kubernetes **1.28 or later** and **Helm 3** to install the chart.
 
 ### RBAC Requirements
 
-The Kloak controller service account requires the following cluster-level permissions:
+The `kloak-controller` ServiceAccount, used by both the controller DaemonSet and the webhook Deployment, is granted the following cluster-level permissions:
 
 ```yaml
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
   resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "deployments", "daemonsets", "statefulsets"]
   verbs: ["get", "list", "watch"]
 - apiGroups: [""]
   resources: ["services"]
@@ -76,98 +78,82 @@ The Kloak controller service account requires the following cluster-level permis
   verbs: ["create", "patch"]
 ```
 
+### Privileges
+
+The controller DaemonSet needs host-level access:
+
+- `privileged: true`, `runAsUser: 0`, AppArmor profile `Unconfined`
+- `hostPID: true`
+- Capabilities `BPF`, `NET_ADMIN`, `SYS_ADMIN`, `SYS_RESOURCE`
+- A privileged init container that mounts tracefs at `/sys/kernel/tracing` (Bidirectional mount propagation)
+- hostPath mounts: `/sys/fs/cgroup`, `/sys/fs/bpf`, `/sys/kernel/btf` (read-only), `/sys/kernel/tracing`
+
+Clusters that forbid privileged pods (for example, GKE Autopilot or namespaces enforcing the `restricted`/`baseline` Pod Security Standard) cannot run the controller.
+
+### Architectures
+
+Images and eBPF programs are built for **amd64** and **arm64**.
+
+### Certificate Modes
+
+The webhook needs a TLS certificate. Set `certificates.mode` in the chart values:
+
+| Mode | Behavior |
+|---|---|
+| `auto` (default) | Helm generates a self-signed certificate, stores it in the `kloak-webhook-certs` Secret, and sets the webhook `caBundle`. An existing certificate is reused on upgrade. |
+| `certManager` | Requires cert-manager. The chart creates a self-signed Issuer and a Certificate (stored in `kloak-webhook-certs`); cert-manager injects the CA bundle. |
+| `provided` | Use your own TLS Secret (`certificates.provided.secretName`, `certKey`, `keyKey`). The chart does not set `caBundle` in this mode, so the webhook configurations must be made to trust your CA separately. |
+
 ## Supported Linux Distributions
 
-### Fully Tested
+### Tested in CI
 
-| Distribution | Kernel Version | Status | Notes |
-|---|---|---|---|
-| Ubuntu 22.04 LTS (HWE kernel) | 5.19 - 6.5 | Tested | HWE kernel required (default 5.15 is too old) |
-| Ubuntu 24.04 LTS | 6.8+ | Tested | Works out of the box |
-| Amazon Linux 2023 | 6.1+ | Tested | Default kernel is compatible |
-| K3s on Ubuntu | 5.17+ | Tested | Used in development and CI |
+| Distribution | Status | Notes |
+|---|---|---|
+| Ubuntu (GitHub `ubuntu-latest` runners) + k3s | Tested | Used in CI and nightly e2e |
 
 ### Expected to Work
 
-| Distribution | Kernel Version | Status | Notes |
-|---|---|---|---|
-| Debian 12 (Bookworm) | 6.1 | Expected | Default kernel meets requirements |
-| Fedora 38+ | 6.2+ | Expected | Modern kernels |
-| Arch Linux | Rolling (6.x) | Expected | Always current |
-| RHEL 9.2+ | 5.14 (with backports) | Verify | May have `bpf_loop` backported; test before production |
-| Rocky Linux 9.2+ | 5.14 (with backports) | Verify | Same kernel as RHEL |
+Any distribution is expected to work when the node kernel is **6.6+** with BTF and cgroup v2 enabled. For example:
+
+| Distribution | Status | Notes |
+|---|---|---|
+| Ubuntu 24.04 LTS | Expected | Ships kernel 6.8 |
+| Ubuntu 22.04 LTS | Expected with HWE kernel | Default kernel 5.15 is too old; the HWE kernel is 6.6+ |
+| Amazon Linux 2023 | Expected with a 6.6+ kernel | The original 6.1 kernel is too old; use a 6.12 kernel |
+| Debian 12 (Bookworm) | Not supported with default kernel | Default kernel 6.1 is too old |
+| Amazon Linux 2 | Not supported | Kernel too old |
+| RHEL / Rocky 9.x | Verify | Kernel reports 5.14 with backports; confirm TCX and `bpf_loop` work before use |
 
 ::: warning
-**Ubuntu 22.04 default kernel (5.15) is NOT compatible.** You must install the HWE (Hardware Enablement) kernel:
+**Ubuntu 22.04 default kernel (5.15) is NOT compatible.** Install the HWE (Hardware Enablement) kernel and confirm `uname -r` reports 6.6 or later:
 ```bash
 sudo apt install linux-generic-hwe-22.04
-```
-This upgrades to kernel 5.19+ which includes `bpf_loop`.
-:::
-
-::: warning
-**RHEL/Rocky 9.x kernels report as 5.14** but may include backported BPF features. Test `bpf_loop` availability before deploying:
-```bash
-# Check if bpf_loop is available
-bpftool feature probe kernel | grep bpf_loop
 ```
 :::
 
 ## Cloud Provider Notes
 
-### Amazon EKS
+Kloak has not been tested on managed Kubernetes services. It is expected to work on any managed node image whose kernel is **6.6+**, with BTF and cgroup v2. Check the kernel version on your nodes:
 
-| EKS Version | Node AMI | Kernel | Status |
-|---|---|---|---|
-| 1.28+ | Amazon Linux 2023 AMI | 6.1+ | Supported |
-| 1.28+ | Amazon Linux 2 AMI | 5.10 | Not supported (kernel too old) |
-| 1.28+ | Bottlerocket | 5.15 - 6.1 | Verify kernel version |
-| 1.28+ | Ubuntu 22.04 EKS AMI | 5.15 | Not supported without HWE |
-| 1.28+ | Ubuntu 24.04 EKS AMI | 6.8 | Supported |
-
-::: tip
-For EKS, use the **Amazon Linux 2023** node AMI. It ships with kernel 6.1+ and includes full BTF support. Amazon Linux 2 uses kernel 5.10 which is too old.
-:::
-
-**EKS-specific configuration:**
-- EKS manages the control plane, so the webhook configuration must reference the in-cluster service
-- Security groups must allow traffic on port 443 from the API server to the webhook service
-- If using managed node groups, ensure the AMI includes BTF (`/sys/kernel/btf/vmlinux`)
-
-### Google GKE
-
-| GKE Channel | Node OS | Kernel | Status |
-|---|---|---|---|
-| Regular/Stable | Container-Optimized OS (COS) | 5.15 - 6.1 | Verify kernel version |
-| Rapid | Container-Optimized OS (COS) | 6.1+ | Likely supported |
-| Any | Ubuntu node images | 5.15 - 6.8 | Depends on image version |
-
-::: warning
-**GKE with COS:** Container-Optimized OS may not include full BTF support in older versions. Check `/sys/kernel/btf/vmlinux` on a node. Consider using Ubuntu-based node images for guaranteed compatibility.
-:::
-
-**GKE-specific notes:**
-- GKE Autopilot does **not** support privileged DaemonSets, which Kloak requires. Use GKE Standard.
-- If using Workload Identity, ensure the controller service account has no restrictive policies blocking eBPF syscalls.
-
-### Azure AKS
-
-| AKS Version | Node OS | Kernel | Status |
-|---|---|---|---|
-| 1.28+ | Ubuntu 22.04 | 5.15 | Not supported without HWE |
-| 1.28+ | Azure Linux (Mariner) | 5.15 - 6.2 | Verify kernel version |
-| 1.28+ | Ubuntu 24.04 (preview) | 6.8 | Supported |
-
-::: tip
-AKS node images are updated frequently. Check the kernel version on your nodes:
 ```bash
 kubectl get nodes -o wide  # Check KERNEL-VERSION column
 ```
-:::
 
-**AKS-specific notes:**
-- Azure Linux (formerly CBL-Mariner) ships kernel 5.15 by default in some versions. Verify `bpf_loop` availability.
-- AKS with Kata Containers / confidential nodes: not supported (nested BPF).
+### Amazon EKS
+
+- Use node AMIs with a 6.6+ kernel (for example Amazon Linux 2023 with a 6.12 kernel, or Ubuntu 24.04). Amazon Linux 2 is too old.
+- The webhook Service listens on port 443 and forwards to the webhook pods on **TCP 9443**. The control plane must be able to reach the pods on 9443 (check node security groups).
+
+### Google GKE
+
+- GKE Autopilot does **not** allow privileged DaemonSets, which Kloak requires. Use GKE Standard.
+- Verify that the node image kernel is 6.6+.
+
+### Azure AKS
+
+- Verify that the node image kernel is 6.6+. Ubuntu 22.04 node images with the 5.15 kernel are too old.
+- AKS with Kata Containers / confidential nodes: not supported.
 
 ## Resource Requirements
 
@@ -176,7 +162,7 @@ kubectl get nodes -o wide  # Check KERNEL-VERSION column
 | Resource | Request | Limit | Notes |
 |---|---|---|---|
 | CPU | 10m | 500m | eBPF attachment is CPU-light; reconciliation is the main consumer |
-| Memory | 64Mi | 512Mi | BPF maps + in-memory secret store |
+| Memory | 64Mi | 512Mi | BPF maps + informer cache |
 
 ### Webhook Deployment
 
@@ -189,36 +175,33 @@ kubectl get nodes -o wide  # Check KERNEL-VERSION column
 
 | Resource | Size | Notes |
 |---|---|---|
-| BPF map: `secret_map` | Scales with number of secrets | ~212 bytes per entry (8B key + 204B value) |
+| BPF map: `secret_map` | Scales with number of secrets | ~280 bytes per entry (8B key + 272B value), max 4096 entries; each secret value uses 2 entries |
 | BPF map: `dns_ip_map` | Scales with resolved DNS entries | LRU, max 8192 entries |
-| BPF map: `conn_ip_map` | Scales with active TCP connections | ~24 bytes per entry |
-| BPF map: `watched_hosts` | Scales with unique host filters | ~36 bytes per entry |
-| Ring buffer: `tls_events` | Fixed size (configurable) | Default 256KB |
-| eBPF programs | ~80KB total | Two TLS programs (phase 1 + phase 2) + DNS kprobe + connect/close tracepoints |
+| BPF map: `conn_ip_map` | Scales with active TCP connections | LRU, max 16384 entries |
+| BPF map: `watched_hosts` | Scales with unique host filters | ~65 bytes per entry (64B key), max 1024 entries |
+| Ring buffer: `tls_events` | Fixed size (compile-time) | 256KB; currently unused |
+| Ring buffer: `proc_events` | Fixed size (compile-time) | 64KB |
+| eBPF programs | 16 programs | TLS uprobes (OpenSSL/BoringSSL `SSL_write`, Go `crypto/tls`, cipher-init hooks, rewrite tail call), DNS kprobe/kretprobe, `tcp_sendmsg` kprobe, connect/close and exec/exit tracepoints, tc patch programs |
 
 ## Verification Checklist
 
 Run these checks on a node to verify Kloak compatibility:
 
 ```bash
-# 1. Kernel version (must be 5.17+)
+# 1. Kernel version (must be 6.6+)
 uname -r
 
 # 2. BTF availability
 ls -la /sys/kernel/btf/vmlinux
 
-# 3. BPF filesystem
-mount | grep bpf
+# 3. cgroup v2
+stat -fc %T /sys/fs/cgroup   # must print cgroup2fs
 
-# 4. bpf_loop support
-bpftool feature probe kernel 2>/dev/null | grep bpf_loop || \
-  echo "bpftool not available; check kernel version >= 5.17"
-
-# 5. Uprobe support
-ls /sys/kernel/debug/tracing/uprobe_events 2>/dev/null && \
-  echo "Uprobes available" || echo "Uprobes not available (check CONFIG_UPROBES)"
+# 4. Uprobe support
+ls /sys/kernel/tracing/uprobe_events 2>/dev/null && \
+  echo "Uprobes available" || echo "Uprobes not available (check CONFIG_UPROBES and tracefs)"
 ```
 
 ::: tip
-If `bpftool` is not installed, the simplest check is the kernel version: any 5.17+ kernel from a major distribution will have all required features enabled.
+The simplest check is the kernel version: a 6.6+ kernel from a major distribution with BTF and cgroup v2 enabled has all required features.
 :::

@@ -8,18 +8,19 @@ Before installing Kloak, make sure your environment meets the following requirem
 
 | Requirement | Minimum Version | Notes |
 |---|---|---|
-| Kubernetes | 1.28+ | Any conformant distribution (EKS, GKE, AKS, k3s, etc.) |
-| Linux kernel | 5.17+ | Required on worker nodes for `bpf_loop` support |
-| Helm | 3.12+ | Used for installing and managing Kloak |
+| Kubernetes | 1.28+ | Tested in CI on k3s; other conformant distributions (EKS, GKE, AKS) are expected to work when the node kernel meets the requirement below |
+| Linux kernel | 6.6+ | Required on worker nodes. `bpf_loop` needs 5.17, and the tc patch program attaches via TCX, which needs 6.6. Kernel BTF must be available. |
+| Helm | 3.x | Used for installing and managing Kloak |
 | kubectl | 1.28+ | Configured with cluster access |
 | cgroup v2 | Enabled | Most modern distributions enable this by default |
+| CPU architecture | amd64 or arm64 | |
 
 ::: tip Checking your kernel version
 Run the following on your worker nodes to verify kernel compatibility:
 ```bash
 uname -r
 ```
-The output should show `5.17` or higher (e.g., `6.1.0-18-amd64`).
+The output should show `6.6` or higher (e.g., `6.8.0-45-generic`). On older kernels the controller starts and attaches uprobes, but the tc program fails to attach and no secret is rewritten.
 :::
 
 ::: warning eBPF requires privileged access
@@ -31,21 +32,21 @@ The Kloak controller runs as a privileged DaemonSet with `CAP_BPF`, `CAP_NET_ADM
 Add the Kloak Helm repository and install:
 
 ```bash
-helm repo add kloak https://getkloak.github.io/kloak
+helm repo add kloak https://chart.getkloak.io
 helm repo update
 
 helm install kloak kloak/kloak \
   -n kloak-system --create-namespace
 ```
 
-By default, this pulls the container image from `ghcr.io/spinningfactory/kloak:latest`.
+By default, this installs the latest stable chart, which pulls the matching image `ghcr.io/spinningfactory/kloak:<chart version>` (for example `0.1.2`). Nightly builds of `main` are published as `0.0.1-nightly-<sha>` pre-release charts; add `--devel` to install one.
 
 This creates the `kloak-system` namespace and deploys two components:
 
 - **kloak-controller** -- A DaemonSet that runs on every node. It watches secrets, creates shadow copies, and loads eBPF programs to intercept TLS writes.
-- **kloak-webhook** -- A Deployment that runs the mutating admission webhook. It intercepts pod creation and rewrites secret volume references to point to Kloak shadow secrets.
+- **kloak-webhook** -- A Deployment that runs the mutating admission webhook. It intercepts pod creation and rewrites Secret references (volumes, `env[].valueFrom.secretKeyRef`, and `envFrom[].secretRef`) to point to Kloak shadow secrets. It also runs a validating webhook that rejects kloak-enabled Secrets Kloak cannot protect.
 
-In `auto` certificate mode (the default), Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration`. No manual certificate management is needed.
+In `auto` certificate mode (the default), Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration` and `ValidatingWebhookConfiguration`. No manual certificate management is needed.
 
 ## Verify the Installation
 
@@ -74,21 +75,26 @@ kubectl rollout status deployment/kloak-webhook -n kloak-system --timeout=120s
 
 ### Verify the Webhook
 
-Confirm that the mutating webhook configuration was created and has a valid CA bundle:
+Confirm that the mutating and validating webhook configurations were created and have a CA bundle:
 
 ```bash
 kubectl get mutatingwebhookconfiguration kloak-mutating-webhook
+kubectl get validatingwebhookconfiguration kloak-validating-webhook
+
+# Should print the start of a base64-encoded certificate, not an empty line
+kubectl get mutatingwebhookconfiguration kloak-mutating-webhook \
+  -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | head -c 40; echo
 ```
 
 ## Customizing the Installation
 
-The default image is `ghcr.io/spinningfactory/kloak:latest`. Override any value in the Helm chart using `--set` or a custom values file:
+The image tag defaults to the chart's version. Override any value in the Helm chart using `--set` or a custom values file:
 
 ```bash
 helm install kloak kloak/kloak \
   -n kloak-system --create-namespace \
   --set image.repository=ghcr.io/spinningfactory/kloak \
-  --set image.tag=latest
+  --set image.tag=0.1.2
 ```
 
 Or create a custom values file:
@@ -97,7 +103,7 @@ Or create a custom values file:
 # my-values.yaml
 image:
   repository: ghcr.io/spinningfactory/kloak
-  tag: latest
+  tag: 0.1.2
 
 controller:
   resources:
@@ -131,7 +137,7 @@ kubectl delete secrets -l getkloak.io/managed=true --all-namespaces
 ```
 
 ::: warning
-Removing Kloak while applications are running means pods will continue to see the shadow secret values (`kloak:<ULID>` placeholders) until they are restarted with the original secrets. Plan your rollback accordingly.
+Removing Kloak while applications are running means pods will continue to see the shadow secret values (`kl::…` placeholders) until they are restarted with the original secrets. Plan your rollback accordingly.
 :::
 
 ## Next Steps

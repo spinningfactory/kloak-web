@@ -1,6 +1,6 @@
 # Deploy OpenClaw with Kloak
 
-This tutorial walks you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on Kubernetes with all LLM API keys protected by Kloak. By the end, your OpenClaw instance will have zero knowledge of your real API keys -- they exist only in eBPF kernel memory and are injected transparently at the TLS boundary.
+This tutorial walks you through deploying [OpenClaw](https://github.com/openclaw/openclaw) on Kubernetes with all LLM API keys protected by Kloak. By the end, your OpenClaw instance will have zero knowledge of your real API keys -- inside the pod, only `kl::` placeholders exist, and the real keys are injected in-kernel into the encrypted TLS traffic as it leaves the pod.
 
 ## What You Will Build
 
@@ -10,21 +10,21 @@ OpenClaw Pod                          LLM Providers
 | Gateway Container       |
 |                         |     TLS write          +------------------+
 | OPENAI_API_KEY=         |  ------------------>   | api.openai.com   |
-|   kloak:MPZVR3GH...   |  eBPF rewrites with    | (real key sent)  |
+|   kl::osUMhUh;tRh2...   |  eBPF rewrites with    | (real key sent)  |
 |                         |  real key in-kernel     +------------------+
 | GEMINI_API_KEY=         |  ------------------>   +------------------+
-|   kloak:QN4FX8KJ...   |                        | generativelanguage|
+|   kl::n;8m4z;eeeo...    |                        | generativelanguage|
 |                         |                        | .googleapis.com  |
 +-------------------------+                        +------------------+
 ```
 
-Your OpenClaw gateway reads `kloak:<ULID>` placeholders from mounted secret files. When it makes API calls to OpenAI, Gemini, or other providers, Kloak's eBPF uprobe intercepts the TLS write and substitutes the real keys -- scoped to the correct provider host.
+Your OpenClaw gateway reads `kl::` placeholders from mounted secret files. When it makes API calls to Anthropic, OpenAI, Gemini, or other providers, Kloak's eBPF uprobe intercepts the TLS write and Kloak patches the real keys into the encrypted traffic as it leaves the pod -- scoped to the correct provider host.
 
 ## Prerequisites
 
-- A running Kubernetes cluster (1.28+, Linux kernel 5.17+) with [Kloak installed](/getting-started/installation)
+- A running Kubernetes cluster (1.28+, Linux kernel 6.6+) with [Kloak installed](/getting-started/installation)
 - `kubectl` configured and pointed at your cluster
-- API keys for at least one LLM provider (OpenAI or Google Gemini)
+- An Anthropic API key, plus optionally OpenAI and/or Google Gemini keys
 
 ## Step 1: Create the Namespace
 
@@ -39,7 +39,27 @@ kubectl label namespace openclaw getkloak.io/enabled=true
 
 Create separate secrets for each LLM provider, each with a host filter that restricts where the key can be sent. This is the key security property -- even if OpenClaw is compromised, each API key can only be sent to its intended provider.
 
-### OpenAI API Key
+`getkloak.io/enabled` must be a **label**, and `getkloak.io/hosts` must be an **annotation**. Kloak's validating webhook rejects a Secret that sets `getkloak.io/hosts` as a label.
+
+### Anthropic API Key
+
+```yaml
+# anthropic-secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anthropic-api-key
+  namespace: openclaw
+  labels:
+    getkloak.io/enabled: "true"
+  annotations:
+    getkloak.io/hosts: "api.anthropic.com"
+type: Opaque
+stringData:
+  ANTHROPIC_API_KEY: "sk-ant-your-real-anthropic-key-here"
+```
+
+### OpenAI API Key (optional)
 
 ```yaml
 # openai-secret.yaml
@@ -50,6 +70,7 @@ metadata:
   namespace: openclaw
   labels:
     getkloak.io/enabled: "true"
+  annotations:
     getkloak.io/hosts: "api.openai.com"
 type: Opaque
 stringData:
@@ -67,6 +88,7 @@ metadata:
   namespace: openclaw
   labels:
     getkloak.io/enabled: "true"
+  annotations:
     getkloak.io/hosts: "generativelanguage.googleapis.com"
 type: Opaque
 stringData:
@@ -75,7 +97,7 @@ stringData:
 
 ### Gateway Token
 
-The gateway token is used for authenticating clients to the OpenClaw gateway. Since this is not sent to an external API (it is verified locally by OpenClaw), it does not need host filtering:
+The gateway token is used for authenticating clients to the OpenClaw gateway. Create it as a **plain** Secret, without the `getkloak.io/enabled` label: Kloak only rewrites outbound TLS traffic, so a Kloak-managed token would leave OpenClaw comparing incoming client tokens against the placeholder (and, with no host filter, the real token would be injected into any outbound TLS write containing it).
 
 ```yaml
 # gateway-token-secret.yaml
@@ -84,11 +106,8 @@ kind: Secret
 metadata:
   name: openclaw-gateway-token
   namespace: openclaw
-  labels:
-    getkloak.io/enabled: "true"
-    # No getkloak.io/hosts -- this token is verified locally,
-    # not sent over TLS to an external host.
-    # Kloak still protects it from appearing in app memory.
+  # No getkloak.io/enabled label -- this token is verified locally
+  # by OpenClaw, so Kloak must not replace it with a placeholder.
 type: Opaque
 stringData:
   OPENCLAW_GATEWAY_TOKEN: "your-long-random-gateway-token-here"
@@ -97,7 +116,8 @@ stringData:
 Apply all secrets:
 
 ```bash
-kubectl apply -f openai-secret.yaml
+kubectl apply -f anthropic-secret.yaml
+kubectl apply -f openai-secret.yaml       # if using OpenAI
 kubectl apply -f gemini-secret.yaml       # if using Gemini
 kubectl apply -f gateway-token-secret.yaml
 ```
@@ -117,10 +137,9 @@ openai-api-key-kloak             Opaque   1      5s
 gemini-api-key                   Opaque   1      5s
 gemini-api-key-kloak             Opaque   1      5s
 openclaw-gateway-token           Opaque   1      5s
-openclaw-gateway-token-kloak     Opaque   1      5s
 ```
 
-Each `-kloak` shadow secret contains a `kloak:<ULID>` placeholder that matches the byte length of your real key.
+Each `-kloak` shadow secret contains a `kl::` placeholder with the same byte length (and HPACK Huffman bit length) as your real key. The gateway token has no shadow because it is not Kloak-managed.
 
 ## Step 3: Create the OpenClaw ConfigMap
 
@@ -175,10 +194,10 @@ kubectl apply -f openclaw-pvc.yaml
 
 ## Step 5: Deploy OpenClaw
 
-Deploy OpenClaw with secrets mounted as **volumes**. Kloak's webhook rewrites secret volume references to point to shadow secrets -- this is how the application receives `kloak:<ULID>` placeholders instead of real values. A wrapper script reads the mounted files into environment variables before starting OpenClaw.
+Deploy OpenClaw with secrets mounted as **volumes**. Kloak's webhook rewrites secret volume references to point to shadow secrets -- this is how the application receives `kl::` placeholders instead of real values. A wrapper script reads the mounted files into environment variables before starting OpenClaw.
 
-::: warning
-Kloak only supports secret **volume mounts**, not `secretKeyRef` environment variables. Secrets injected via `env[].valueFrom.secretKeyRef` bypass the webhook and are not protected.
+::: tip
+Kloak's webhook also rewrites `env[].valueFrom.secretKeyRef` and `envFrom[].secretRef` references to kloak-enabled secrets, so those are protected too. Volumes are used here so the optional provider keys can be loaded only when present. Projected volume sources are not rewritten.
 :::
 
 ```yaml
@@ -297,7 +316,7 @@ spec:
             optional: true
 ```
 
-Note that all `secretName` references point to the **original** secret names. Kloak's webhook automatically rewrites them to the shadow secrets (e.g., `anthropic-api-key` becomes `anthropic-api-key-kloak`).
+Note that all `secretName` references point to the **original** secret names. Kloak's webhook automatically rewrites references to kloak-enabled secrets to the shadow secrets (e.g., `anthropic-api-key` becomes `anthropic-api-key-kloak`). The gateway token is not kloak-enabled, so its reference is left unchanged.
 
 ```bash
 kubectl apply -f openclaw-deployment.yaml
@@ -354,20 +373,20 @@ kubectl exec -n openclaw deploy/openclaw -- cat /etc/secrets/anthropic/ANTHROPIC
 ```
 
 ```
-kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
+kl::40u&8,CJZW0s0cc0iaea2i0c1oit0te
 ```
 
-The application only sees `kloak:<ULID>` placeholders -- the real keys are never in process memory.
+The application only sees `kl::` placeholders (random characters, same length as your real key) -- the real keys are never in process memory.
 
 ### Check Controller Logs
 
 Verify the eBPF uprobes were attached and secrets synced:
 
 ```bash
-kubectl logs -n kloak-system -l app.kubernetes.io/component=controller --tail=50 | grep -E "Attached|Synced"
+kubectl logs -n kloak-system -l app.kubernetes.io/component=controller --tail=200 | grep -i "attached TLS uprobes"
 ```
 
-You should see uprobe attachment for the OpenClaw process and secret sync events with `hostLen > 0` (confirming host filtering is active).
+You should see `Successfully attached TLS uprobes` for the OpenClaw process. Per-secret sync events (`synced secret into eBPF map`, with `hostLen > 0` confirming host filtering is active) are logged only at trace level -- install with `--set log.level=trace` to see them.
 
 ### Test an API Call
 
@@ -377,14 +396,14 @@ Use OpenClaw to make a real API call and verify it works:
 # Port-forward if not already done
 kubectl port-forward -n openclaw svc/openclaw 18789:18789 &
 
-# Send a test message (adjust the gateway token to match your real token)
+# Send a test message (use the gateway token from gateway-token-secret.yaml)
 curl -s http://localhost:18789/api/v1/chat \
   -H "Authorization: Bearer your-long-random-gateway-token-here" \
   -H "Content-Type: application/json" \
   -d '{"message": "Say hello in one sentence.", "model": "claude-sonnet-4-20250514"}' | jq .
 ```
 
-If you get a successful response from Claude, Kloak is working -- the `kloak:<ULID>` placeholder was transparently replaced with your real Anthropic API key at the eBPF level before TLS encryption.
+If you get a successful response from Claude, Kloak is working -- the `kl::` placeholder was transparently replaced with your real Anthropic API key in-kernel, in the encrypted TLS traffic as it left the pod.
 
 ## How Host Filtering Protects You
 
@@ -395,14 +414,14 @@ The security power of this setup comes from per-secret host filtering. Here is w
 | `anthropic-api-key` | `api.anthropic.com` | Key is rewritten only for TLS connections to Anthropic |
 | `openai-api-key` | `api.openai.com` | Key is rewritten only for TLS connections to OpenAI |
 | `gemini-api-key` | `generativelanguage.googleapis.com` | Key is rewritten only for TLS connections to Google |
-| `openclaw-gateway-token` | *(no filter)* | Token is rewritten for any connection (local auth only) |
+| `openclaw-gateway-token` | *(not Kloak-managed)* | Plain Secret; verified locally by OpenClaw, never rewritten |
 
 **Attack scenario prevented:** If an attacker exploits a vulnerability in OpenClaw (e.g., prompt injection leading to SSRF), they could try to make OpenClaw send API keys to `evil.attacker.com`. With Kloak's host filtering:
 
 1. The attacker triggers a request to `evil.attacker.com` carrying the Anthropic key placeholder
 2. Kloak's eBPF program resolves the destination via the DNS-verified trust chain
 3. `evil.attacker.com` does not match `api.anthropic.com`
-4. The placeholder is **not** rewritten -- the attacker receives `kloak:MPZVR3GH...` (useless)
+4. The placeholder is **not** rewritten -- the attacker receives `kl::40u&8,CJZ...` (useless)
 
 ## Troubleshooting
 
@@ -414,7 +433,7 @@ Check if the shadow secrets exist:
 kubectl get secrets -n openclaw | grep kloak
 ```
 
-If missing, verify the original secrets have the `getkloak.io/enabled=true` label:
+If missing, verify the original secrets have the `getkloak.io/enabled=true` label (and that `getkloak.io/hosts` is an annotation, not a label):
 
 ```bash
 kubectl get secret anthropic-api-key -n openclaw --show-labels
@@ -427,9 +446,9 @@ kubectl get secret anthropic-api-key -n openclaw --show-labels
    kubectl logs -n kloak-system -l app.kubernetes.io/component=controller --tail=100
    ```
 
-2. **Verify DNS capture** is working (the controller logs debug counters):
+2. **Verify DNS capture** is working (eBPF debug counters are logged only at trace level, `--set log.level=trace`):
    ```bash
-   kubectl logs -n kloak-system -l app.kubernetes.io/component=controller | grep "dns"
+   kubectl logs -n kloak-system -l app.kubernetes.io/component=controller | grep -i "dns"
    ```
 
 3. **Check the host filter** matches the actual API endpoint. For example, if Anthropic changes their API domain, the host filter would block the rewrite. Verify with:
@@ -439,14 +458,14 @@ kubectl get secret anthropic-api-key -n openclaw --show-labels
 
 ### Gateway Token Not Working
 
-The gateway token is verified locally by OpenClaw, not sent over TLS. If clients cannot authenticate, check that the shadow secret was mounted:
+The gateway token is verified locally by OpenClaw, so it must **not** be Kloak-managed. If clients cannot authenticate, check that the original secret was mounted, not a shadow:
 
 ```bash
 kubectl get pod -l app=openclaw -n openclaw \
   -o jsonpath='{.items[0].spec.volumes}' | jq '.[] | select(.name == "secret-gateway")'
 ```
 
-The `secret.secretName` should show the `-kloak` suffix (rewritten by the webhook).
+The `secret.secretName` should be `openclaw-gateway-token` with no `-kloak` suffix. If it has the suffix, remove the `getkloak.io/enabled` label from the secret and recreate the pod.
 
 ## Clean Up
 
@@ -457,5 +476,5 @@ kubectl delete namespace openclaw
 ## Next Steps
 
 - Read the [Host Filtering guide](/guides/host-filtering) to understand the DNS-verified trust chain in depth
-- Learn about [Supported Runtimes](/guides/supported-runtimes) -- OpenClaw (Node.js on Alpine with system OpenSSL) is supported
+- Learn about [Supported Runtimes](/guides/supported-runtimes) -- OpenClaw runs on Node.js, which uses the OpenSSL bundled in the `node` binary; Kloak supports it
 - Review the [Architecture Overview](/architecture/overview) for the full eBPF data flow

@@ -14,7 +14,7 @@ hero:
 
 features:
   - title: Zero Code Changes
-    details: Applications use hashed shadow values that get transparently rewritten at runtime. No SDK, no sidecar, no code modifications required.
+    details: Applications use random `kl::` placeholder values; the real value is patched into the encrypted TLS traffic in-kernel. No SDK, no sidecar, no code modifications required.
   - title: eBPF Powered
     details: In-kernel uprobes intercept TLS writes and replace placeholders with real secret values before transmission, with minimal overhead.
   - title: Host Filtering
