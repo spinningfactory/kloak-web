@@ -8,12 +8,12 @@ Protect your first Kubernetes secret with Kloak in under five minutes. By the en
                     Your App                         Network
                +--------------+               +----------------+
   Reads from   |              |   TLS write   |                |
-  mounted vol  | kloak:MPZV.. | ------------> | REAL-API-KEY   |
-               | (shadow)     |   eBPF rewrites in-kernel      |
+  mounted vol  | kl::5Gyh7..  | ------------> | REAL-API-KEY   |
+               | (shadow)     |   eBPF patches in-kernel       |
                +--------------+               +----------------+
 ```
 
-Your application sees `kloak:MPZVR3GH...` in its secret files. When it sends that value over a TLS connection, Kloak's eBPF program intercepts the write and substitutes the real secret before it hits the wire. The application never handles the actual credential.
+Your application sees `kl::5Gyh7ae*...` in its secret files. When it sends that value over a TLS connection, Kloak's eBPF programs patch the real secret into the encrypted TLS record as it leaves the pod. The application never handles the actual credential.
 
 ## Prerequisites
 
@@ -22,21 +22,23 @@ Your application sees `kloak:MPZVR3GH...` in its secret files. When it sends tha
 
 ## Step 1: Create a Namespace
 
-Create a namespace for the demo:
+Create a namespace for this guide:
 
 ```bash
-kubectl create namespace kloak-demo
+kubectl create namespace kloak-quickstart
 ```
 
 ::: tip Enablement model
 Kloak uses a layered opt-in model. The webhook only processes pods that are explicitly enabled via pod labels or namespace labels. In this guide, we use a pod label in Step 3 to enable Kloak.
+
+This guide uses its own namespace, `kloak-quickstart`, so it doesn't clash with the chart's optional demo (`--set demo.enabled=true`), which uses `kloak-demo`.
 :::
 
 ## Step 2: Create a Secret
 
-Create a standard Kubernetes secret and label it for Kloak:
+Create a standard Kubernetes secret, label it for Kloak, and annotate it with the host it may be sent to:
 
-```yaml{7-8}
+```yaml{7,9}
 # secret.yaml
 apiVersion: v1
 kind: Secret
@@ -44,6 +46,7 @@ metadata:
   name: my-api-credentials
   labels:
     getkloak.io/enabled: "true"
+  annotations:
     getkloak.io/hosts: "httpbin.org"
 type: Opaque
 stringData:
@@ -51,18 +54,22 @@ stringData:
 ```
 
 ```bash
-kubectl apply -f secret.yaml -n kloak-demo
+kubectl apply -f secret.yaml -n kloak-quickstart
 ```
+
+::: tip Label vs annotation
+`getkloak.io/enabled` must be a **label**. `getkloak.io/hosts` must be an **annotation**: Kloak's validating webhook rejects a Secret that sets it as a label. Each value must also be 8–128 bytes long.
+:::
 
 Two things happen when you apply this:
 
-1. Kloak's `SecretReconciler` detects the `getkloak.io/enabled=true` label.
-2. It creates a shadow secret called `my-api-credentials-kloak` containing a ULID placeholder (`kloak:<ULID>`) that is length-matched to the original value.
+1. Kloak's validating webhook checks the Secret, and the `SecretReconciler` detects the `getkloak.io/enabled=true` label.
+2. It creates a shadow secret called `my-api-credentials-kloak` containing a random `kl::` placeholder with exactly the same byte length as the original value.
 
 Verify the shadow secret was created:
 
 ```bash
-kubectl get secrets -n kloak-demo
+kubectl get secrets -n kloak-quickstart
 ```
 
 ```
@@ -74,17 +81,17 @@ my-api-credentials-kloak      Opaque   1      8s
 Inspect the shadow value:
 
 ```bash
-kubectl get secret my-api-credentials-kloak -n kloak-demo \
+kubectl get secret my-api-credentials-kloak -n kloak-quickstart \
   -o jsonpath='{.data.api-key}' | base64 -d
 ```
 
-You will see something like `kloak:MPZVR3GHWT4E6YBCA01JQXK5N8` -- a harmless placeholder that matches the byte length of your real secret.
+You will see something like `kl::5Gyh7ae*XwH2f2WZoZ351e3sk` -- a harmless random placeholder with the same byte length as your real secret (29 bytes).
 
 ## Step 3: Deploy an Application
 
 Create a simple deployment that mounts the secret and sends it in an HTTP header:
 
-```yaml{12-13,24-25}
+```yaml{17,43}
 # app.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -131,7 +138,7 @@ spec:
 ```
 
 ```bash
-kubectl apply -f app.yaml -n kloak-demo
+kubectl apply -f app.yaml -n kloak-quickstart
 ```
 
 ::: warning Note the volume reference
@@ -143,20 +150,20 @@ The deployment references `secretName: my-api-credentials` (the **original** sec
 Wait for the pod to start:
 
 ```bash
-kubectl rollout status deployment/demo-app -n kloak-demo --timeout=60s
+kubectl rollout status deployment/demo-app -n kloak-quickstart --timeout=60s
 ```
 
 Now check the application logs:
 
 ```bash
-kubectl logs -l app=demo-app -n kloak-demo --tail=30
+kubectl logs -l app=demo-app -n kloak-quickstart --tail=30
 ```
 
 You should see two key things:
 
 **1. The app reads the shadow value (not the real secret):**
 ```
-Secret value seen by app: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
+Secret value seen by app: kl::5Gyh7ae*XwH2f2WZoZ351e3sk
 ```
 
 **2. The HTTPS response from httpbin.org shows the real secret was sent:**
@@ -169,14 +176,14 @@ Secret value seen by app: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 }
 ```
 
-The application never saw the real secret, but the TLS-encrypted request carried it. Kloak's eBPF uprobe replaced the placeholder with the real value inside the kernel, right before TLS encryption.
+The application never saw the real secret, but the TLS-encrypted request carried it. Kloak's uprobe saw the placeholder when curl wrote it to TLS. curl's TLS library then encrypted the placeholder, and a Kloak tc program on the host side of the pod's network interface patched the real value into the AES-GCM ciphertext and fixed up the authentication tag. The real value never exists in the pod's memory.
 
 ## Step 5: Verify Webhook Mutation
 
 Confirm that the pod was mutated to use the shadow secret:
 
 ```bash
-kubectl get pod -l app=demo-app -n kloak-demo -o jsonpath='{.items[0].spec.volumes}' | jq .
+kubectl get pod -l app=demo-app -n kloak-quickstart -o jsonpath='{.items[0].spec.volumes}' | jq .
 ```
 
 ```json
@@ -194,21 +201,21 @@ Notice the `secretName` was changed from `my-api-credentials` to `my-api-credent
 
 ## How Host Filtering Works
 
-In Step 2, you added the label `getkloak.io/hosts: "httpbin.org"`. This tells Kloak to only replace the placeholder when the TLS connection is headed to `httpbin.org`.
+In Step 2, you added the annotation `getkloak.io/hosts: "httpbin.org"`. This tells Kloak to only replace the placeholder when the TLS connection is headed to `httpbin.org`.
 
-If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kloak:...` ULID instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
+If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kl::...` placeholder instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
 
 `getkloak.io/hosts` takes a single hostname (or a single IP, or `*` for any).
 Multiple hosts per secret are not supported yet — a comma-separated value is
 rejected by the validating webhook. Use one secret per host for now
 ([spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
 
-To allow a secret to be sent to any host, omit the `getkloak.io/hosts` label entirely (or set it to `*`).
+To allow a secret to be sent to any host, omit the `getkloak.io/hosts` annotation entirely (or set it to `*`). To also restrict the destination port, add the `getkloak.io/port` annotation (for example `"443"` or `"443/tcp"`).
 
 ## Clean Up
 
 ```bash
-kubectl delete namespace kloak-demo
+kubectl delete namespace kloak-quickstart
 ```
 
 ## Next Steps

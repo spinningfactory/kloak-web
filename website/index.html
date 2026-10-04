@@ -67,7 +67,7 @@
             <div class="hero-layout">
                 <div class="hero-container">
                     <p class="hero-description">
-                        Kloak transparently intercepts HTTPS traffic in Kubernetes using pure eBPF, replacing hashed
+                        Kloak transparently intercepts HTTPS traffic in Kubernetes using pure eBPF, replacing random
                         placeholders with real secrets at the network edge. Your applications never see the actual
                         credentials, so a compromised process cannot leak what it never had.
                     </p>
@@ -105,7 +105,7 @@
                         </div>
                         <div class="terminal-body">
                             <pre><code><span class="term-comment"># Your app sends this header:</span>
-<span class="term-key">Authorization:</span> <span class="term-hash">kloak:MPZVR3GHWT4E6YBCA01JQXK5N8</span>
+<span class="term-key">Authorization:</span> <span class="term-hash">kl::5Gyh7ae*XwH2f2WZoZ351e3sk</span>
 
 <span class="term-comment"># Kloak transforms it to:</span>
 <span class="term-key">Authorization:</span> <span class="term-value">Bearer sk-live-xyz123...</span>
@@ -225,8 +225,8 @@
                     </div>
                     <h3 class="feature-title">Zero Code Changes</h3>
                     <p class="feature-description">
-                        No SDK required. Works with any language or framework. Use the hash placeholder in your
-                        config.
+                        No SDK required. Works with Go, Bun, and runtimes built on OpenSSL 3.x or BoringSSL
+                        (Python, Node.js, curl, and more). Your manifests stay the same.
                     </p>
                 </div>
                 <div class="feature-card">
@@ -280,11 +280,12 @@
                         <h3 class="step-title">Register Your Secrets</h3>
                         <p class="step-description">
                             Label your Kubernetes secrets with <code>getkloak.io/enabled=true</code>. Kloak generates a
-                            unique ULID placeholder for each secret value.
+                            random <code>kl::</code> placeholder of the same length for each secret value.
                         </p>
                         <div class="step-code">
                             <pre><code><span class="code-key">labels:</span>
   <span class="code-key">getkloak.io/enabled:</span> <span class="code-string">"true"</span>
+<span class="code-key">annotations:</span>
   <span class="code-key">getkloak.io/hosts:</span> <span class="code-string">"api.example.com"</span></code></pre>
                         </div>
                     </div>
@@ -292,14 +293,14 @@
                 <div class="step">
                     <div class="step-number">02</div>
                     <div class="step-content">
-                        <h3 class="step-title">Use Hash Placeholders</h3>
+                        <h3 class="step-title">Mount Secrets As Usual</h3>
                         <p class="step-description">
-                            Reference the generated hash in your application config instead of the actual secret. Your
+                            Mount the Secret as you normally would. Kloak's webhook swaps in the placeholder copy, so your
                             app never sees the real value.
                         </p>
                         <div class="step-code">
                             <pre><code><span class="code-key">headers:</span>
-  <span class="code-key">Authorization:</span> <span class="code-string">"kloak:MPZVR3GHWT4E6YBCA01JQXK5N8"</span></code></pre>
+  <span class="code-key">Authorization:</span> <span class="code-string">"kl::5Gyh7ae*XwH2f2WZoZ351e3sk"</span></code></pre>
                         </div>
                     </div>
                 </div>
@@ -308,8 +309,8 @@
                     <div class="step-content">
                         <h3 class="step-title">Automatic Transform</h3>
                         <p class="step-description">
-                            When your app makes an HTTPS request, Kloak intercepts it and replaces the hash with the
-                            real secret before forwarding.
+                            When your app makes an HTTPS request, Kloak patches the real secret into the encrypted
+                            request in-kernel as it leaves the pod.
                         </p>
                         <div class="step-code">
                             <pre><code><span class="code-comment"># Request leaves your pod with real credentials</span>

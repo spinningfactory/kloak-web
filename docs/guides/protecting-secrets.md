@@ -1,16 +1,17 @@
 # Protecting Secrets with Kloak
 
-This guide walks you through protecting your first Kubernetes Secret with Kloak. By the end, your application will never see actual secret values -- it will only see harmless `kloak:<ULID>` placeholders that get replaced with real values in-kernel by eBPF, just before TLS transmission.
+This guide walks you through protecting your first Kubernetes Secret with Kloak. By the end, your application will never see actual secret values -- it will only see harmless `kl::…` placeholders. The real values are patched into the encrypted TLS traffic in-kernel by eBPF, after your application has handed the data to its TLS library.
 
 ## How It Works
 
 When you label a Secret with `getkloak.io/enabled=true`, Kloak's SecretReconciler automatically:
 
-1. Creates a **shadow secret** named `<original>-kloak` containing `kloak:<ULID>` placeholder values
-2. Length-matches each placeholder to the original value (padding or truncating as needed)
-3. Stores the ULID-to-real-value mapping in an in-memory store synced to the eBPF map
+1. Creates a **shadow secret** named `<original>-kloak` containing `kl::` placeholder values (`kl::` followed by random characters)
+2. Generates each placeholder at exactly the original value's byte length and HPACK Huffman bit length, so HTTP/1.1 and HTTP/2 rewrites keep the wire format valid
 
-Your application mounts and reads the shadow secret -- it only ever sees the ULID placeholders. When the application writes data over TLS, the eBPF uprobe intercepts the write, scans for known `kloak:` prefixes, and rewrites them with the real secret values before the encrypted payload leaves the kernel.
+Every 5 seconds the controller joins each enabled Secret with its shadow and syncs the placeholder-to-real-value pairs into the eBPF `secret_map`.
+
+Your application mounts and reads the shadow secret -- it only ever sees the placeholders. When the application writes data over TLS, an eBPF uprobe on the TLS write function scans for the `kl::` prefix and records the patch; after the TLS library encrypts the data, a tc program patches the real value into the ciphertext before the packet leaves the node.
 
 ## Step 1: Label Your Secret
 
@@ -22,8 +23,9 @@ kind: Secret
 metadata:
   name: api-credentials
   labels:
-    getkloak.io/enabled: "true"        # Enable Kloak protection
-    getkloak.io/hosts: "api.stripe.com" # Optional: restrict to specific hosts
+    getkloak.io/enabled: "true"        # Enable Kloak protection (must be a label)
+  annotations:
+    getkloak.io/hosts: "api.stripe.com" # Optional: restrict to one host (must be an annotation)
 type: Opaque
 data:
   api-key: c2stbGl2ZS1rZXktMTIzNDU2Nzg5MA==  # sk-live-key-1234567890
@@ -48,22 +50,26 @@ Inspect the shadow secret to see the placeholder:
 
 ```bash
 $ kubectl get secret api-credentials-kloak -n my-app -o jsonpath='{.data.api-key}' | base64 -d
-kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
+kl::Os;&Xuie02icasosoi
 ```
 
+The placeholder has the same length (22 bytes) as `sk-live-key-1234567890`. Yours will contain different random characters.
+
 ::: tip
-The shadow secret has an `OwnerReference` pointing to the original. If you delete the original secret, Kubernetes garbage collection automatically cleans up the shadow.
+The shadow secret has an `OwnerReference` pointing to the original and is labeled `getkloak.io/managed=true`. If you delete the original secret, Kubernetes garbage collection automatically cleans up the shadow.
 :::
 
 ::: warning
-Secret values must be at least 8 bytes long (the length of `kloak:` plus 2 ULID characters). Shorter values cannot be reliably intercepted by the eBPF program.
+Each secret value must be 8 -- 128 bytes long (`kl::` plus at least 4 characters for the eBPF lookup key), and its HPACK Huffman density must be matchable by a same-length placeholder. The validating webhook rejects values that fail either check at `kubectl apply` time.
 :::
 
 ## Step 2: Enable Kloak on Your Pod
 
-Kloak needs to know which pods should have eBPF uprobes attached. You have three options, checked in this order:
+Kloak needs to know which pods should be mutated and have eBPF uprobes attached. You have two options:
 
-### Option A: Pod Annotation (Most Specific)
+### Option A: Pod Label
+
+Add the label to the pod template. If the pod has the label, its value decides: `"false"` opts a pod out even in an enabled namespace.
 
 ```yaml
 apiVersion: apps/v1
@@ -71,9 +77,13 @@ kind: Deployment
 metadata:
   name: my-app
 spec:
+  selector:
+    matchLabels:
+      app: my-app
   template:
     metadata:
       labels:
+        app: my-app
         getkloak.io/enabled: "true"
     spec:
       containers:
@@ -89,27 +99,35 @@ spec:
             secretName: api-credentials  # Reference the ORIGINAL secret name
 ```
 
+::: warning
+Only the pod **label** enables Kloak. A `getkloak.io/enabled` pod annotation does not, and there is no inheritance from Deployments or other workloads -- set the label on the pod template.
+:::
+
 ### Option B: Namespace Label (Enables All Pods in Namespace)
 
 ```bash
 kubectl label namespace my-app getkloak.io/enabled=true
 ```
 
-When a namespace is labeled, every pod created in that namespace is automatically processed by Kloak -- no per-pod labels needed.
+When a namespace is labeled, every pod created in that namespace is automatically processed by Kloak -- no per-pod labels needed, unless a pod opts out with `getkloak.io/enabled: "false"`.
 
 ::: tip
-Always reference the **original** secret name in your volume definition, not the shadow. The webhook automatically rewrites the volume to mount the shadow secret instead.
+Always reference the **original** secret name in your pod spec, not the shadow. The webhook automatically rewrites the reference to the shadow secret instead.
 :::
 
 ## Step 3: How the Webhook Mutates Your Pod
 
-When a pod with `getkloak.io/enabled=true` label (or in a labeled namespace) is created, the Kloak mutating webhook intercepts the admission request and:
+When a pod with the `getkloak.io/enabled=true` label (or in a labeled namespace) is created, the Kloak mutating webhook intercepts the admission request and:
 
-1. Checks if Kloak is enabled (pod label or namespace label)
-2. Scans all Secret volumes in the pod spec
-3. For each secret that has `getkloak.io/enabled=true`, rewrites `secretName` from `api-credentials` to `api-credentials-kloak`
-4. **Rejects** the pod if any shadow secret is missing (fail-closed -- prevents real secrets from being mounted)
+1. Checks if Kloak is enabled (pod label, otherwise namespace label)
+2. Finds every reference to a Secret labeled `getkloak.io/enabled=true` in `volumes[].secret`, `env[].valueFrom.secretKeyRef`, and `envFrom[].secretRef` (containers, init containers, and ephemeral containers)
+3. Rewrites each reference from `api-credentials` to `api-credentials-kloak`
+4. **Rejects** the pod if a shadow secret is missing or is not a Kloak-managed shadow (fail-closed -- prevents real secrets from being mounted)
 5. Adds the `getkloak.io/enabled: "true"` annotation to the pod (so the controller can detect it)
+
+::: warning
+Secrets referenced through `projected` volume sources are **not** rewritten. Don't reference protected secrets through projected volumes.
+:::
 
 You can verify the mutation worked:
 
@@ -133,7 +151,8 @@ The best way to verify Kloak is working is to send a request to an echo service 
 kubectl create secret generic api-credentials \
     --from-literal=api-key="sk-live-key-1234567890" \
     -n my-app --dry-run=client -o yaml | \
-    kubectl label -f - getkloak.io/enabled="true" getkloak.io/hosts="httpbin.org" --local -o yaml | \
+    kubectl label -f - getkloak.io/enabled="true" --local -o yaml | \
+    kubectl annotate -f - getkloak.io/hosts="httpbin.org" --local -o yaml | \
     kubectl apply -f -
 ```
 
@@ -154,7 +173,6 @@ spec:
     metadata:
       labels:
         app: curl-test
-      annotations:
         getkloak.io/enabled: "true"
     spec:
       containers:
@@ -168,7 +186,7 @@ spec:
                 echo "App sees: $SECRET"
                 echo "---"
                 curl -s https://httpbin.org/headers \
-                  -H "X-Api-Key: $SECRET" | python3 -m json.tool
+                  -H "X-Api-Key: $SECRET"
                 echo "---"
                 sleep 10
               done
@@ -191,7 +209,7 @@ kubectl logs -l app=curl-test -n my-app
 You should see output like:
 
 ```
-App sees: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
+App sees: kl::Os;&Xuie02icasosoi
 ---
 {
   "headers": {
@@ -202,13 +220,14 @@ App sees: kloak:MPZVR3GHWT4E6YBCA01JQXK5N8
 ---
 ```
 
-The application reads `kloak:MPZVR3GH...` from the mounted secret, but httpbin.org receives `sk-live-key-1234567890` -- the real value was substituted in-kernel by the eBPF uprobe before TLS encryption.
+The application reads `kl::Os;&Xuie02icasosoi` from the mounted secret, but httpbin.org receives `sk-live-key-1234567890` -- the real value was patched into the encrypted traffic in-kernel.
 
 ::: danger
-If you see the `kloak:` ULID in the httpbin response, the eBPF rewrite did not trigger. Common causes:
+If you see the `kl::` placeholder in the httpbin response, the eBPF rewrite did not trigger. Common causes:
 - The controller pod is not running or not ready on the node
 - The eBPF map has not synced yet (wait 10-15 seconds after pod startup)
-- The secret value is shorter than 8 bytes
+- The connection negotiated a non-AES-GCM cipher suite (e.g. ChaCha20-Poly1305)
+- The application's TLS library or version is not supported (see [Supported Runtimes](/guides/supported-runtimes))
 - The DNS resolution for the target host was not captured (check controller logs for DNS debug counters)
 :::
 
@@ -217,28 +236,35 @@ If you see the `kloak:` ULID in the httpbin response, the eBPF rewrite did not t
 Here is the complete lifecycle of a protected secret:
 
 ```
-1. You create Secret with getkloak.io/enabled=true
+1. You create Secret with label getkloak.io/enabled=true
    │
 2. SecretReconciler creates shadow secret (api-credentials-kloak)
-   │  Each value: "kloak:<ULID>" padded to match original length
-   │  Mapping stored: ULID → real value + allowed hosts
+   │  Each value: "kl::" + random characters, same byte length and
+   │  HPACK Huffman bit length as the original
    │
-3. Pod is created referencing the original secret
+3. Controller syncs placeholder → real value + host/IP/port filter
+   │  into the eBPF secret_map (every 5 seconds)
    │
-4. Webhook intercepts admission, rewrites volume: api-credentials → api-credentials-kloak
+4. Pod is created referencing the original secret
    │
-5. Pod starts, reads shadow secret → sees "kloak:MPZVR3GH..."
+5. Webhook intercepts admission, rewrites reference: api-credentials → api-credentials-kloak
    │
-6. Controller detects pod, finds PID via cgroup, attaches eBPF uprobes
+6. Pod starts, reads shadow secret → sees "kl::Os;&Xuie02icasosoi"
    │
-7. App calls SSL_write() / tls.Conn.Write() with data containing "kloak:..."
+7. Controller detects pod, finds PID via cgroup, attaches eBPF uprobes
    │
-8. eBPF uprobe fires:
-   ├─ Phase 1: Scans TLS write buffer for "kloak:" prefix (8-byte key lookup)
-   └─ Phase 2 (tail call): Verifies full prefix, checks host filter, rewrites in-place
+8. App calls SSL_write() / tls.Conn.Write() with data containing "kl::..."
    │
-9. Real secret value leaves the kernel encrypted via TLS
-   └─ The application process never had access to the real value
+9. eBPF uprobe fires (plaintext buffer is never modified):
+   ├─ Phase 1: Scans the write buffer for "kl::" (or its HPACK Huffman form)
+   │           and records the 8-byte lookup keys
+   └─ Phase 2 (tail call): Looks up each key, checks the host/IP/port filter,
+              computes an XOR delta (placeholder XOR real value)
+   │
+10. TLS library encrypts the placeholder; a tc program on the host side of
+    the pod's veth XORs the delta into the AES-GCM ciphertext and recomputes
+    the GCM tag
+    └─ The application process never had access to the real value
 ```
 
 ## Updating Secrets
@@ -246,15 +272,15 @@ Here is the complete lifecycle of a protected secret:
 When you update the original secret, Kloak automatically:
 
 1. Detects the change via the SecretReconciler watch
-2. Reuses existing ULIDs where possible (to keep shadow values stable)
-3. Generates new ULIDs for new keys or length-changed values
-4. Updates the shadow secret and the in-memory storage
+2. Keeps the existing placeholder when the new value has the same byte length and the same HPACK Huffman bit length
+3. Generates new placeholders for new keys or values whose length or Huffman bit length changed
+4. Updates the shadow secret
 5. Syncs the new mappings to the eBPF map (within 5 seconds)
 
 No pod restart is required -- the eBPF map is updated live.
 
 ::: tip
-Shadow secrets preserve ULIDs across updates when the value length stays the same. This means your application does not see a "change" in the mounted file unless a key is added, removed, or its length changes.
+Your application does not see a "change" in the mounted file unless a key is added or removed, or a value's byte length or Huffman bit length changes.
 :::
 
 ## Cleaning Up
@@ -265,4 +291,4 @@ To stop protecting a secret, remove the label:
 kubectl label secret api-credentials getkloak.io/enabled- -n my-app
 ```
 
-The SecretReconciler will automatically delete the shadow secret and clean up the storage mappings. Running pods will continue to see the old shadow values until restarted.
+The SecretReconciler will automatically delete the shadow secret, and the next sync removes its entries from the eBPF map. Running pods will continue to see the old placeholder values (which are no longer rewritten) until restarted.
