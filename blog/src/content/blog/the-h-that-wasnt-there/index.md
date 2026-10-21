@@ -66,7 +66,7 @@ So we diffed the last passing version against the first failing one and reviewed
 
 Since 3.1, on CPUs with AVX-512 (Intel Ice Lake or newer, AMD Zen 4 or newer), OpenSSL runs GCM through a dedicated `vaes_gcm` path. 3.0 has none. And GitHub-hosted runners land on whatever Azure host is free, so some jobs got those CPUs and some didn't. We opened that code expecting to find a race. What we found was simpler, and worse: the path zeroes the GCM context and fills only its precomputed table of H powers. `GCM128_CONTEXT.H` is never written.
 
-**H** wasn't lazy. On those machines it never existed in that field. The "flake" was a deterministic failure on one CPU family, sampled through a randomized runner pool. In production it would have failed silently on any node with a recent Xeon or EPYC.
+**H** wasn't lazy. On those machines it never existed in that field. The "flake" was a deterministic failure on one CPU family, sampled through a randomized runner pool.
 
 **H** was still in memory, just in a different shape. Slot 15 of that table holds `HashKey_1`:
 
