@@ -1,5 +1,5 @@
 ---
-title: 'The H That Wasn''t There: Chasing a 26% Flake Into OpenSSL''s GCM Path'
+title: 'Chasing a Flake Into OpenSSL''s GCM Path'
 description: 'A CI flake that turned out to be a deterministic failure on AVX-512 CPUs, and how kloak now recovers OpenSSL''s GCM hash subkey without running AES in BPF'
 pubDate: 2026-10-21
 author: 'Kloak Team'
