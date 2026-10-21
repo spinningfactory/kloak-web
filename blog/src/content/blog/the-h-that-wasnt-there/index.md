@@ -6,7 +6,11 @@ author: 'Kloak Team'
 tags: ['ebpf', 'tls', 'openssl', 'debugging']
 ---
 
-For weeks, the OpenSSL nightly test suite for kloak failed roughly 25% of the time. The failures rotated randomly across version cells, but the outcome was identical every time: a `kl::` placeholder emerged from the TLS connection rather than the unmasked secret. While it initially appeared to be a race condition, the true culprit lay completely hidden from our monitoring tools.
+kloak reads OpenSSL's internal structures at offsets that move between releases. Until June 2026, our E2E suite only exercised whatever OpenSSL versions our demo images happened to ship. In May that gap cost us: a hardcoded offset that was only right for OpenSSL 3.2 and later [silently broke every 3.0 and 3.1 caller](https://github.com/spinningfactory/kloak/pull/222), and we only found it by hand on an Ubuntu machine.
+
+In June we closed that gap with a nightly job that builds OpenSSL from source for every tracked release, checks our offsets against each one, and runs the E2E suite on all of them. Within a week it was failing in a way we couldn't explain, and it kept failing until October. Each night one or two versions failed at random, and the symptom never changed: a `kl::` placeholder left the TLS connection instead of the real secret. It looked like a race condition. It wasn't.
+
+The bug had been there since kloak first supported OpenSSL in April. The nightly was just the first thing to run enough OpenSSL versions on enough different machines to hit it.
 
 This is the story of chasing that bug, the fix we almost shipped, and the one we did ship in [kloak#313](https://github.com/spinningfactory/kloak/pull/313). Along the way it's a tour of how kloak rewrites secrets inside encrypted traffic without ever handing them to the application.
 
@@ -22,7 +26,7 @@ The complication lies in GCM's authentication tag: altering the ciphertext inval
 
 Kloak avoids terminating TLS altogether. Instead, it attaches directly to each supported stack (OpenSSL, BoringSSL, Go crypto/tls, Bun) right where key material and unencrypted text reside. This approach is an intentional compromise: it eliminates the need for proxies, trust store modifications, or bypassing certificate pinning, though it demands reading internal structures at offsets that shift across releases.
 
-To manage this overhead, we rely heavily on automation. Offsets for every supported architecture and release are automatically extracted using a dedicated discovery tool for each stack. These discoveries and the full E2E test suite are executed nightly across all tracked versions, with new upstream releases submitted automatically via pull requests. The story begins with one of these OpenSSL nightly test runs.
+To manage this overhead, we rely heavily on automation. Offsets for every supported architecture and release are automatically extracted using a dedicated discovery tool for each stack. These discoveries and the full E2E test suite are executed nightly across all tracked versions, with new upstream releases submitted automatically via pull requests.
 
 ## Where kloak finds H
 
