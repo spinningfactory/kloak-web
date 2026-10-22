@@ -6,7 +6,7 @@ author: 'Kloak Team'
 tags: ['ebpf', 'tls', 'openssl', 'debugging']
 ---
 
-kloak reads OpenSSL's internal structures at offsets that move between releases. Until June 2026, our E2E suite only exercised whatever OpenSSL versions our demo images happened to ship. In May that gap cost us: a hardcoded offset that was only right for OpenSSL 3.2 and later [silently broke every 3.0 and 3.1 caller](https://github.com/spinningfactory/kloak/pull/222), and we only found it by hand on an Ubuntu machine.
+kloak reads OpenSSL's internal structures at offsets that move between releases. Until June 2026, our E2E suite only exercised whatever OpenSSL versions our demo images happened to ship. In May, a bug slipped through that gap: a hardcoded offset that was only right for OpenSSL 3.2 and later [silently broke every 3.0 and 3.1 caller](https://github.com/spinningfactory/kloak/pull/222), and we only found it by hand on an Ubuntu machine.
 
 In June we closed that gap with a nightly job that builds OpenSSL from source for every tracked release, checks our offsets against each one, and runs the E2E suite on all of them. Within a week it was failing in a way we couldn't explain, and it kept failing until October. Each night one or two versions failed at random, and the symptom never changed: a `kl::` placeholder left the TLS connection instead of the real secret. It looked like a race condition. It wasn't.
 
