@@ -6,11 +6,11 @@ author: 'Kloak Team'
 tags: ['ebpf', 'tls', 'openssl', 'debugging']
 ---
 
-kloak reads OpenSSL's internal structures at offsets that move between releases. Until June 2026, our E2E suite only exercised whatever OpenSSL versions our demo images happened to ship. In May, a bug slipped through that gap: a hardcoded offset that was only right for OpenSSL 3.2 and later [silently broke every 3.0 and 3.1 caller](https://github.com/spinningfactory/kloak/pull/222), and we only found it by hand on an Ubuntu machine.
+kloak reads OpenSSL's internal structures at fixed offsets, and those offsets change from one release to the next. Until June 2026 our E2E tests only ran against whatever OpenSSL versions came with our demo images. In May a hardcoded offset that was only correct for OpenSSL 3.2 and later [quietly broke kloak for anyone on 3.0 or 3.1](https://github.com/spinningfactory/kloak/pull/222). We only noticed when we tried kloak on Ubuntu 24.04.
 
-In June we closed that gap with a nightly job that builds OpenSSL from source for every tracked release, checks our offsets against each one, and runs the E2E suite on all of them. Within a week it was failing in a way we couldn't explain, and it kept failing until October. Each night one or two versions failed at random, and the symptom never changed: a `kl::` placeholder left the TLS connection instead of the real secret. It looked like a race condition. It wasn't.
+In June we added a nightly job. It builds OpenSSL from source for every release we track, checks our offsets against each build, and runs the E2E tests on all of them. Within a week it was failing in ways we couldn't explain, and it kept failing until October. Most nights one or two versions failed, with no obvious pattern to which ones. Each time, the server got the `kl::` placeholder instead of the real secret. Our first guess was a race condition.
 
-The bug had been there since kloak first supported OpenSSL in April. The nightly was just the first thing to run enough OpenSSL versions on enough different machines to hit it.
+It turned out the bug had been in kloak since April, when we first started patching secrets into OpenSSL's encrypted records. The nightly just happened to be the first thing that ran enough OpenSSL versions, on enough different machines, to trip over it.
 
 This is the story of chasing that bug, the fix we almost shipped, and the one we did ship in [kloak#313](https://github.com/spinningfactory/kloak/pull/313). Along the way it's a tour of how kloak rewrites secrets inside encrypted traffic without ever handing them to the application.
 
