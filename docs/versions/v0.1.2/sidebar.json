@@ -33,7 +33,8 @@
     "items": [
       { "text": "Labels & Annotations", "link": "/reference/labels-annotations" },
       { "text": "Limits", "link": "/reference/limits" },
-      { "text": "Requirements", "link": "/reference/requirements" }
+      { "text": "Requirements", "link": "/reference/requirements" },
+      { "text": "Release Notes", "link": "/reference/release-notes" }
     ]
   }
 ]

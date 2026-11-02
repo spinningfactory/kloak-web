@@ -67,7 +67,7 @@ The docs are versioned by Kloak release. Each version is a separate VitePress bu
 - The latest docs live in `docs/` (pages plus `sidebar.json`) and are served at `/docs/`.
 - Each archived version is a frozen copy in `docs/versions/<version>/` (pages plus its own `sidebar.json`), served at `/docs/<version>/`. Fix mistakes there directly; don't backport new features.
 - Every version's content describes that release's code (check the kloak repo at the release tag, not `main`), and its install commands pin `--version` to that chart.
-- When kloak cuts a release: `npm run new-version -- vX.Y.Z` copies the current latest docs into `versions/<previous latest>/` and makes `vX.Y.Z` the latest; then update the pages in `docs/` for the new release.
+- When kloak cuts a release: `npm run new-version -- vX.Y.Z` copies the current latest docs into `versions/<previous latest>/` and makes `vX.Y.Z` the latest; then update the pages in `docs/` for the new release, and rewrite `reference/release-notes.md` with its most important changes (highlights, upgrade notes, fixes, supported versions), linking each to its kloak PR and to the GitHub release.
 - The switcher links across builds with plain `<a target="_self">` links (full page loads): VitePress prefixes nav links with the current build's base, which can't point at another version.
 
 ### Landing Page (`/website/`)
