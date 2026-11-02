@@ -28,7 +28,7 @@ When set as a label on a Secret, the SecretReconciler:
 1. Creates a shadow secret named `<secret-name>-kloak` whose values are `kl::` placeholders: `kl::` followed by random characters, with exactly the same byte length and HPACK Huffman bit length as each real value (so HTTP/2 rewrites stay valid)
 2. Labels the shadow `getkloak.io/managed=true` and sets an `OwnerReference` so the shadow is garbage collected when the original is deleted
 
-Every 5 seconds the controller joins each enabled Secret with its shadow (from its informer cache) and syncs the shadow-prefix → real-value mapping into the eBPF `secret_map` on each node. There is no separate secret store.
+Whenever an enabled Secret or its shadow is created, changed or deleted (and every 5 minutes), the controller joins each enabled Secret with its shadow (from its informer cache) and syncs the shadow-prefix → real-value mapping into the eBPF `secret_map` on each node. There is no separate secret store.
 
 ```yaml
 apiVersion: v1
@@ -47,6 +47,8 @@ On Secrets, `getkloak.io/enabled` must be a **label**. The annotation form is no
 :::
 
 Placeholders are kept when a secret is rotated only if the new value has the same byte length and the same Huffman bit length; otherwise a new placeholder is generated.
+
+A key whose value can't be rewritten (shorter than 8 bytes, or with a Huffman density no same-length placeholder can match) is left out of the shadow while the other keys are shadowed. If no key qualifies, no shadow is created. The validating webhook rejects such values, so this only happens when it is bypassed.
 
 To disable protection, remove the label:
 
@@ -119,7 +121,8 @@ metadata:
 ```
 
 **Behavior:**
-- If the annotation is **present**: only connections to the specified host receive the real value. All other destinations see the `kl::` placeholder.
+- If the annotation is a **hostname**: Kloak gives the host a virtual IP, and only connections made to it whose TLS SNI is the host receive the real value. All other destinations see the `kl::` placeholder. See [How Host Resolution Works](../guides/host-filtering.md#how-host-resolution-works).
+- If the annotation is an **IP address**: only connections made to that address receive the real value.
 - If the annotation is **absent**, empty, or `*`: the secret is allowed for all destinations (wildcard).
 
 ::: warning
@@ -135,7 +138,7 @@ never rewritten. Use one secret per host for now. Tracked in
 :::
 
 ::: tip
-Hostnames are matched exactly (no wildcards). Use the exact hostname your application connects to. For example, use `api.stripe.com`, not `*.stripe.com` or `stripe.com`.
+Hostnames are matched exactly (no wildcards). Use the exact hostname your application connects to, which is also the name it sends as its TLS SNI. For example, use `api.stripe.com`, not `*.stripe.com` or `stripe.com`, and for an in-cluster Service use the same name in both places (`my-svc` and `my-svc.ns.svc.cluster.local` don't match each other).
 :::
 
 **Hostname length limit:** 63 characters. Longer hostnames are rejected by the validating webhook; without the webhook, the secret is not loaded into the eBPF map and is never rewritten.

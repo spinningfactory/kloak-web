@@ -16,9 +16,11 @@ All doc commands run from the `/docs/` directory:
 
 ```bash
 cd docs && npm ci           # Install dependencies
-cd docs && npm run dev      # Start dev server (hot reload)
-cd docs && npm run build    # Production build (output: docs/.vitepress/dist/)
-cd docs && npm run preview  # Preview production build locally
+cd docs && npm run dev      # Start dev server for the latest docs (hot reload)
+cd docs && DOCS_VERSION=v0.2.0 npm run dev   # Dev server for an archived version
+cd docs && npm run build    # Build every version (output: docs/.vitepress/dist/)
+cd docs && npm run preview  # Preview the production build locally, all versions
+cd docs && npm run new-version -- v0.4.0     # Archive the latest docs, start docs for a new release
 ```
 
 Blog commands run from the `/blog/` directory:
@@ -52,10 +54,21 @@ A Cloudflare Workers project (Static Assets path, in the unified Workers & Pages
 
 ### Documentation Site (`/docs/`)
 
-- **Config:** `docs/.vitepress/config.ts` — nav, sidebar, base path (`/docs/`), dark-mode-only
-- **Theme:** `docs/.vitepress/theme/` — extends VitePress DefaultTheme with custom CSS (teal/dark branding)
+- **Config:** `docs/.vitepress/config.ts` — base path, sidebar (read from the version's `sidebar.json`), nav (the first page of each sidebar group), dark-mode-only
+- **Theme:** `docs/.vitepress/theme/` — extends VitePress DefaultTheme with custom CSS (teal/dark branding), the version switcher (`VersionSwitcher.vue`, a nav item) and the "older version" banner (`VersionBanner.vue`)
 - **Content structure:** `getting-started/`, `guides/`, `tutorials/`, `architecture/`, `reference/`
 - **Diagrams:** Mermaid syntax in markdown
+
+#### Versioned docs
+
+The docs are versioned by Kloak release. Each version is a separate VitePress build, selected with the `DOCS_VERSION` env var (`scripts/build.mjs` runs them all):
+
+- `docs/.vitepress/versions.json` lists the `latest` release and the `archived` ones (newest first). Only stable releases get docs, no alphas or betas.
+- The latest docs live in `docs/` (pages plus `sidebar.json`) and are served at `/docs/`.
+- Each archived version is a frozen copy in `docs/versions/<version>/` (pages plus its own `sidebar.json`), served at `/docs/<version>/`. Fix mistakes there directly; don't backport new features.
+- Every version's content describes that release's code (check the kloak repo at the release tag, not `main`), and its install commands pin `--version` to that chart.
+- When kloak cuts a release: `npm run new-version -- vX.Y.Z` copies the current latest docs into `versions/<previous latest>/` and makes `vX.Y.Z` the latest; then update the pages in `docs/` for the new release.
+- The switcher links across builds with plain `<a target="_self">` links (full page loads): VitePress prefixes nav links with the current build's base, which can't point at another version.
 
 ### Landing Page (`/website/`)
 
@@ -76,8 +89,8 @@ A Cloudflare Workers project (Static Assets path, in the unified Workers & Pages
 ## Key Details
 
 - Node 20 is used in CI (pinned via `.nvmrc`)
-- VitePress base path is `/docs/` — all internal doc links must account for this
+- VitePress base path is `/docs/` for the latest docs and `/docs/<version>/` for archived ones. Write internal links as `/guides/...`: VitePress adds the base. Link outside the docs (the blog, the landing page) with absolute `https://getkloak.io/...` URLs
 - The site uses dark mode only (configured in VitePress and custom CSS)
 - Brand color is teal/blue (`#1782CE`)
-- Kloak placeholders are `kl::` followed by random characters, with the same byte length (and HPACK Huffman bit length) as the real value. Not ULIDs, UUIDs, or hashes. Generate realistic examples with kloak's own generator rather than inventing them.
-- `getkloak.io/enabled` is a label; `getkloak.io/hosts` and `getkloak.io/port` are annotations (the validating webhook rejects them as labels).
+- Kloak placeholders (v0.2.0+) are `kl::` followed by random characters, with the same byte length (and HPACK Huffman bit length) as the real value. Not ULIDs, UUIDs, or hashes. In v0.1.x they were `kloak:` plus uppercase Crockford Base32 characters from a ULID. Generate realistic examples with kloak's own generator (of that release) rather than inventing them.
+- `getkloak.io/enabled` is a label; `getkloak.io/hosts` and `getkloak.io/port` are annotations (v0.2.0+ rejects them as labels; v0.1.2 ignores them as labels; in v0.1.0 and v0.1.1 they were labels).

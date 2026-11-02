@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "vitepress dev",
-    "build": "vitepress build",
-    "preview": "vitepress preview"
+    "build": "node scripts/build.mjs",
+    "preview": "vitepress preview",
+    "new-version": "node scripts/new-version.mjs"
   },
   "devDependencies": {
     "mermaid": "^11.14.0",

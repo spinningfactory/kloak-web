@@ -14,6 +14,8 @@ Before installing Kloak, make sure your environment meets the following requirem
 | kubectl | 1.28+ | Configured with cluster access |
 | cgroup v2 | Enabled | Most modern distributions enable this by default |
 | CPU architecture | amd64 or arm64 | |
+| Container runtime | containerd 2.0+ or CRI-O 1.30+ recommended | Their NRI hook lets Kloak prepare each pod before its containers start. Other runtimes work with a short window at pod start; see [Requirements](/reference/requirements#container-runtime-nri) |
+| Free address ranges | `198.18.0.0/15` and `2001:2::/48` by default | Kloak hands out virtual IPs from them for host-restricted secrets. They must not be used by the cluster or its nodes; see [Virtual IP ranges](/reference/requirements#virtual-ip-ranges) |
 
 ::: tip Checking your kernel version
 Run the following on your worker nodes to verify kernel compatibility:
@@ -35,11 +37,11 @@ Add the Kloak Helm repository and install:
 helm repo add kloak https://chart.getkloak.io
 helm repo update
 
-helm install kloak kloak/kloak \
+helm install kloak kloak/kloak --version 0.3.0 \
   -n kloak-system --create-namespace
 ```
 
-By default, this installs the latest stable chart, which pulls the matching image `ghcr.io/spinningfactory/kloak:<chart version>` (for example `0.1.2`). Nightly builds of `main` are published as `0.0.1-nightly-<sha>` pre-release charts; add `--devel` to install one.
+This installs chart version 0.3.0, which pulls the matching image `ghcr.io/spinningfactory/kloak:0.3.0`. Without `--version`, Helm installs the latest stable chart. Nightly builds of `main` are published as `0.0.1-nightly-<sha>` pre-release charts; add `--devel` to install one.
 
 This creates the `kloak-system` namespace and deploys two components:
 
@@ -47,6 +49,16 @@ This creates the `kloak-system` namespace and deploys two components:
 - **kloak-webhook** -- A Deployment that runs the mutating admission webhook. It intercepts pod creation and rewrites Secret references (volumes, `env[].valueFrom.secretKeyRef`, and `envFrom[].secretRef`) to point to Kloak shadow secrets. It also runs a validating webhook that rejects kloak-enabled Secrets Kloak cannot protect.
 
 In `auto` certificate mode (the default), Helm generates a self-signed TLS certificate at install time, stores it in the `kloak-webhook-certs` secret, and sets the `caBundle` on the `MutatingWebhookConfiguration` and `ValidatingWebhookConfiguration`. No manual certificate management is needed.
+
+At startup the controller checks that its virtual IP ranges don't overlap any address range of the cluster or its node. If they do, it logs the overlapping range and exits; set `controller.ebpf.virtualIPRange` to free ranges (see [Configuration](./configuration.md#virtual-ip-ranges)).
+
+## Upgrading from v0.2.x and Earlier
+
+In v0.3.0, secrets restricted to a hostname use [virtual IPs](/guides/host-filtering#how-host-resolution-works) instead of reading the DNS answers pods receive:
+
+- **Restart kloak-enabled pods after the upgrade.** Pods that were already running keep the addresses they resolved before, and a connection to a real address gets no host-restricted secret.
+- If the controller refuses to start because a virtual IP range overlaps an address range of the cluster or a node, set `controller.ebpf.virtualIPRange` to free ranges.
+- A secret restricted to a hostname is now only rewritten on a connection whose TLS SNI is that host. Clients that connect through a different name than the one in `getkloak.io/hosts` (for example a short in-cluster Service name) send the placeholder; see [SNI check](/guides/host-filtering#sni-check).
 
 ## Verify the Installation
 
@@ -91,10 +103,10 @@ kubectl get mutatingwebhookconfiguration kloak-mutating-webhook \
 The image tag defaults to the chart's version. Override any value in the Helm chart using `--set` or a custom values file:
 
 ```bash
-helm install kloak kloak/kloak \
+helm install kloak kloak/kloak --version 0.3.0 \
   -n kloak-system --create-namespace \
   --set image.repository=ghcr.io/spinningfactory/kloak \
-  --set image.tag=0.1.2
+  --set image.tag=0.3.0
 ```
 
 Or create a custom values file:
@@ -103,7 +115,7 @@ Or create a custom values file:
 # my-values.yaml
 image:
   repository: ghcr.io/spinningfactory/kloak
-  tag: 0.1.2
+  tag: 0.3.0
 
 controller:
   resources:
@@ -116,7 +128,7 @@ controller:
 ```
 
 ```bash
-helm install kloak kloak/kloak \
+helm install kloak kloak/kloak --version 0.3.0 \
   -n kloak-system --create-namespace \
   -f my-values.yaml
 ```
@@ -139,6 +151,8 @@ kubectl delete secrets -l getkloak.io/managed=true --all-namespaces
 ::: warning
 Removing Kloak while applications are running means pods will continue to see the shadow secret values (`kl::…` placeholders) until they are restarted with the original secrets. Plan your rollback accordingly.
 :::
+
+The virtual IP maps stay pinned under `/sys/fs/bpf/kloak` on each node until it reboots. To remove them sooner, delete that directory on each node after uninstalling.
 
 ## Next Steps
 

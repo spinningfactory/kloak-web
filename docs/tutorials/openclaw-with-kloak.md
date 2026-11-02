@@ -419,9 +419,11 @@ The security power of this setup comes from per-secret host filtering. Here is w
 **Attack scenario prevented:** If an attacker exploits a vulnerability in OpenClaw (e.g., prompt injection leading to SSRF), they could try to make OpenClaw send API keys to `evil.attacker.com`. With Kloak's host filtering:
 
 1. The attacker triggers a request to `evil.attacker.com` carrying the Anthropic key placeholder
-2. Kloak's eBPF program resolves the destination via the DNS-verified trust chain
-3. `evil.attacker.com` does not match `api.anthropic.com`
+2. The connection goes to `evil.attacker.com`'s own address, not to the virtual IP Kloak gave `api.anthropic.com`
+3. Kloak's eBPF program sees the socket is not a connection to `api.anthropic.com`
 4. The placeholder is **not** rewritten -- the attacker receives `kl::40u&8,CJZ...` (useless)
+
+Pointing the request at `api.anthropic.com`'s virtual IP while naming another host in the TLS handshake doesn't work either: the SNI check requires the connection's SNI to be `api.anthropic.com`.
 
 ## Troubleshooting
 
@@ -446,14 +448,15 @@ kubectl get secret anthropic-api-key -n openclaw --show-labels
    kubectl logs -n kloak-system -l app.kubernetes.io/component=controller --tail=100
    ```
 
-2. **Verify DNS capture** is working (eBPF debug counters are logged only at trace level, `--set log.level=trace`):
+2. **Check the virtual IP.** Inside the pod, the provider's host should resolve to an address in `198.18.0.0/15`:
    ```bash
-   kubectl logs -n kloak-system -l app.kubernetes.io/component=controller | grep -i "dns"
+   kubectl exec -n openclaw deploy/openclaw -- getent hosts api.anthropic.com
    ```
+   If it resolves to the provider's real addresses, restart the pod (it may have started before the DNS rewrite was attached), and check that it references the secret restricted to that host.
 
-3. **Check the host filter** matches the actual API endpoint. For example, if Anthropic changes their API domain, the host filter would block the rewrite. Verify with:
+3. **Check the host filter** matches the actual API endpoint. For example, if OpenClaw is configured to call a different domain, the host filter (and the SNI check) blocks the rewrite. Look for refusals in the controller logs:
    ```bash
-   kubectl exec -n openclaw deploy/openclaw -- nslookup api.anthropic.com
+   kubectl logs -n kloak-system -l app.kubernetes.io/component=controller | grep -E "SNI check violation|secret binding violation"
    ```
 
 ### Gateway Token Not Working
@@ -475,6 +478,6 @@ kubectl delete namespace openclaw
 
 ## Next Steps
 
-- Read the [Host Filtering guide](/guides/host-filtering) to understand the DNS-verified trust chain in depth
+- Read the [Host Filtering guide](/guides/host-filtering) to understand virtual IPs and the SNI check in depth
 - Learn about [Supported Runtimes](/guides/supported-runtimes) -- OpenClaw runs on Node.js, which uses the OpenSSL bundled in the `node` binary; Kloak supports it
 - Review the [Architecture Overview](/architecture/overview) for the full eBPF data flow

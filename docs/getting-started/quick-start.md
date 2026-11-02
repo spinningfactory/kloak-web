@@ -205,6 +205,14 @@ In Step 2, you added the annotation `getkloak.io/hosts: "httpbin.org"`. This tel
 
 If the application tries to send the same placeholder to a different host, Kloak will **not** substitute the real value -- the destination receives the harmless `kl::...` placeholder instead. This prevents secrets from being exfiltrated to unauthorized endpoints.
 
+Behind the scenes, the pod resolves `httpbin.org` to a virtual IP Kloak assigned to that host, and Kloak redirects the connection to one of httpbin.org's real addresses. Only a connection made this way, whose TLS SNI is `httpbin.org`, gets the real value. You can see the virtual IP from inside the pod:
+
+```bash
+kubectl exec -n kloak-quickstart deploy/demo-app -- nslookup httpbin.org
+```
+
+The A record is an address in `198.18.0.0/15` (and an AAAA record, if httpbin.org has one, an address in `2001:2::/48`). See [Host Filtering](/guides/host-filtering) for details.
+
 `getkloak.io/hosts` takes a single hostname (or a single IP, or `*` for any).
 Multiple hosts per secret are not supported yet — a comma-separated value is
 rejected by the validating webhook. Use one secret per host for now
