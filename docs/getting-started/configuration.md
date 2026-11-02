@@ -10,10 +10,14 @@ The controller runs as a DaemonSet on every node. It manages secret reconciliati
 |---|---|---|
 | `--health-probe-bind-address` | `:8081` | Address for health (`/healthz`) and readiness (`/readyz`) probe endpoints. |
 | `--cgroup-path` | `/sys/fs/cgroup` | Path to the cgroup v2 filesystem. When running in a container with a host mount, this is typically `/host/sys/fs/cgroup`. |
-| `--trusted-dns-servers` | *(empty)* | Comma-separated list of trusted DNS server IPs. Only DNS responses from these IPs are used for host filtering. The `kube-dns` cluster IP is always auto-discovered at startup and added to this list. Set via the Helm value `controller.dns.trustedServers` (a YAML list). |
+| `--trusted-dns-servers` | *(empty)* | Comma-separated DNS server IPs trusted in addition to kube-dns. Only answers from trusted servers are rewritten to virtual IPs for host-restricted secrets. kube-dns's ClusterIPs and the addresses of its endpoints are discovered and kept current. Set via the Helm value `controller.dns.trustedServers` (a YAML list). |
 | `--enable-ebpf` | `false` | Load the eBPF programs and attach TLS uprobes. The Helm chart sets this to `true` (`controller.ebpf.enabled`). |
-| `--egress-interface` | `auto` | Container interface whose host-side veth peer gets the tc patch program. `auto` uses the interface of the container's default IPv4 route; a name pins it; `none` (or `lo-only`) disables the tc program, so no secret is rewritten. Set via `controller.ebpf.egressInterface`. |
+| `--egress-interface` | `auto` | Container interface whose host-side veth peer gets the tc patch program. `auto` uses the interface of the container's default IPv4 route, or of its default IPv6 route in an IPv6-only pod; a name pins it; `none` (or `lo-only`) disables the tc program, so no secret is rewritten. Set via `controller.ebpf.egressInterface`. |
 | `--tc-attach-mode` | `auto` | How the tc patch program is attached: `auto` uses TCX on Linux 6.6+ and falls back to a `clsact` qdisc + `cls_bpf` filter on older kernels; `tcx` requires TCX; `clsact` always uses the classic filter. Set via `controller.ebpf.tcAttachMode`. |
+| `--secret-binding` | `enforce` | Which pods may use a secret: only pods that reference it in their spec. `enforce` refuses the rewrite for any other pod; `audit` allows it but logs each violation. Set via `controller.ebpf.secretBinding`. See [Per-Pod Secret Binding](#per-pod-secret-binding). |
+| `--sni-check` | `enforce` | A secret restricted to a hostname is only rewritten on a connection whose TLS ClientHello names that host (SNI). `enforce` refuses other rewrites; `audit` allows them but logs each one. Set via `controller.ebpf.sniCheck`. See [SNI check](/guides/host-filtering#sni-check). |
+| `--virtual-ip-range` | `198.18.0.0/15,2001:2::/48` | The ranges virtual IPs come from: an IPv4 range (/19 or larger) and, optionally, an IPv6 range (/115 or larger), comma-separated. Set via `controller.ebpf.virtualIPRange`. See [Virtual IP Ranges](#virtual-ip-ranges). |
+| `--nri-socket` | `/var/run/nri/nri.sock` | NRI socket of the container runtime (containerd 2.0+, CRI-O 1.30+). `""` disables NRI. Set via `controller.nri.enabled` and `controller.nri.socketPath`. See [Container Runtime Hook (NRI)](#container-runtime-hook-nri). |
 
 ### Environment Variables
 
@@ -92,6 +96,8 @@ Kloak uses a strict opt-in model. Nothing is intercepted unless explicitly enabl
 
 Both sides are required. Enabling only the secret creates the shadow copy but no pod uses it. Enabling only the workload attaches uprobes but rewrites nothing, because the webhook only rewrites references to kloak-enabled secrets.
 
+A kloak-enabled pod can also only use the secrets it references in its own spec. See [Per-Pod Secret Binding](#per-pod-secret-binding).
+
 ### Secret Enablement
 
 Label any secret to have Kloak create a shadow copy. Destination filters go in **annotations**:
@@ -111,7 +117,9 @@ stringData:
   token: "my-real-token-value"
 ```
 
-When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with a random `kl::` placeholder for each key, exactly as long as the real value (and with the same HPACK Huffman length, so HTTP/2 rewrites stay valid). Every 5 seconds the controller joins each enabled secret with its shadow and syncs the shadow-to-real mapping into the eBPF map in the kernel. The original secret is untouched.
+When the `SecretReconciler` detects this label, it creates `my-secret-kloak` with a random `kl::` placeholder for each key, exactly as long as the real value (and with the same HPACK Huffman length, so HTTP/2 rewrites stay valid). Whenever an enabled secret or its shadow is created, changed or deleted, the controller joins each enabled secret with its shadow and syncs the shadow-to-real mapping into the eBPF map in the kernel. It also resyncs every 5 minutes. The original secret is untouched.
+
+A key whose value can't be rewritten (shorter than 8 bytes, or with a character mix no same-length placeholder can match) is left out of the shadow, and the secret's other keys are still shadowed. A pod gets no value for that key, never the real one. If no key qualifies, no shadow is created. The validating webhook rejects such values at admission, so this only happens when the webhook is bypassed.
 
 The validating webhook rejects a kloak-enabled Secret at `kubectl apply` time if:
 
@@ -175,6 +183,18 @@ If neither enables it, the pod is not processed by Kloak. Pods in Kloak's own re
 Workload-level inheritance (Deployment, DaemonSet, StatefulSet labels) is not supported. Use pod template labels or namespace labels instead.
 :::
 
+### Per-Pod Secret Binding
+
+A placeholder is only rewritten for the pods that reference its secret in their spec, through a `secret` volume, `env[].valueFrom.secretKeyRef`, or `envFrom[].secretRef` in a container or init container. The webhook points these references at the shadow secret, and the controller binds the pod's containers to the secrets they name before it attaches the uprobes. A volume with `items`, or a `secretKeyRef`, binds only the keys it names. Ephemeral containers are not bound. The binding is removed when the pod is deleted.
+
+If any other kloak-enabled pod sends the placeholder, even one that learned it from a log or another pod, the placeholder goes out unchanged and the controller logs a warning:
+
+```
+secret binding violation (rewrite refused): pod used a secret it does not reference
+```
+
+This also refuses apps that read a shadow secret through the Kubernetes API instead of mounting it. To find such workloads before enforcing the binding, install with `--set controller.ebpf.secretBinding=audit`: the rewrite is allowed and each violation is still logged.
+
 ### Host Filtering
 
 The `getkloak.io/hosts` annotation on a secret controls which TLS destinations receive the real value:
@@ -189,9 +209,32 @@ Setting either key as a label is rejected by the validating webhook.
 
 A single value only — a comma-separated list is not supported yet and is rejected by the validating webhook (see [spinningfactory/kloak#102](https://github.com/spinningfactory/kloak/issues/102)).
 
-When a TLS write is intercepted, the eBPF program resolves the destination hostname via the DNS-verified trust chain (DNS capture -> connection tracking -> host resolution). If the resolved hostname does not match the allowed host, the placeholder is **not** replaced -- the remote server receives the harmless `kl::...` placeholder. See the [Host Filtering guide](/guides/host-filtering) for details.
+Kloak gives every hostname in a `getkloak.io/hosts` annotation its own virtual IP. A pod that references a secret restricted to that host gets the virtual IP in place of the host's addresses in DNS answers, and its connections to the virtual IP are redirected to one of the real addresses. The secret is only rewritten on a connection made to the host's virtual IP whose TLS SNI is that host. Anywhere else, the remote server receives the harmless `kl::...` placeholder. See the [Host Filtering guide](/guides/host-filtering) for details.
 
 Omitting `getkloak.io/hosts` (or setting it to `*`) allows the secret to be sent to any destination. Wildcard subdomains such as `*.example.com` are not supported.
+
+### Virtual IP Ranges
+
+The virtual IPs come from `controller.ebpf.virtualIPRange` (`--virtual-ip-range`): an IPv4 range of /19 or larger and, optionally, an IPv6 range of /115 or larger, comma-separated. The defaults, `198.18.0.0/15` and `2001:2::/48`, are reserved for benchmarking (RFC 2544, RFC 5180) and never routed.
+
+At startup the controller refuses to start if a range overlaps a node address, a pod CIDR, a service CIDR, or a route of its node. The service ranges come from the `ServiceCIDR` API (Kubernetes 1.33+); on older clusters the controller checks the ClusterIPs of the `kubernetes` and `kube-dns` Services instead.
+
+To use other ranges, pick ones your cluster and nodes don't use, and escape the comma with `--set`:
+
+```bash
+helm upgrade kloak kloak/kloak -n kloak-system --reuse-values \
+  --set controller.ebpf.virtualIPRange='10.200.0.0/16\,fd00:6b6c::/112'
+```
+
+Without an IPv6 range, AAAA answers are left unchanged, and an app that connects over IPv6 gets no host-restricted secret.
+
+The virtual IPs and the real addresses behind them are kept in BPF maps pinned under `/sys/fs/bpf/kloak`, so a controller restart keeps them. While the controller is not running, connections to virtual IPs fail.
+
+### Container Runtime Hook (NRI)
+
+With containerd 2.0+ or CRI-O 1.30+, Kloak hooks into the container runtime through NRI (the Node Resource Interface). The runtime waits for Kloak while it creates each pod sandbox, so the DNS rewrite is in place before any container of the pod resolves a name, and again before each container starts, so the container's TLS uprobes are attached before its first TLS write.
+
+NRI is on by default (`controller.nri.enabled: true`, socket `/var/run/nri/nri.sock`, mounted from the host). On a runtime without NRI, or with it disabled, the controller attaches the DNS rewrite by polling pending pods, and a container's uprobes once the pod's status reports it running. That leaves a short window at pod start: a lookup made in it gets the real addresses (and a connection made with them gets no host-restricted secret until the app resolves the name again), and a TLS write made in it sends the placeholder. The controller logs which way each node runs.
 
 ## Helm Values
 
@@ -206,8 +249,13 @@ Omitting `getkloak.io/hosts` (or setting it to `*`) allows the secret to be sent
 | `controller.ebpf.enabled` | `true` | Passed as `--enable-ebpf`. |
 | `controller.ebpf.egressInterface` | `auto` | Passed as `--egress-interface`. |
 | `controller.ebpf.tcAttachMode` | `auto` | Passed as `--tc-attach-mode`. |
+| `controller.ebpf.secretBinding` | `enforce` | Passed as `--secret-binding` (`enforce` or `audit`). |
+| `controller.ebpf.sniCheck` | `enforce` | Passed as `--sni-check` (`enforce` or `audit`). |
+| `controller.ebpf.virtualIPRange` | `198.18.0.0/15,2001:2::/48` | Passed as `--virtual-ip-range`. |
+| `controller.nri.enabled` | `true` | Hook into the container runtime through NRI. |
+| `controller.nri.socketPath` | `/var/run/nri/nri.sock` | The runtime's NRI socket. Its directory is mounted from the host. Passed as `--nri-socket`. |
 | `controller.cgroupPath` | `/host/sys/fs/cgroup` | Passed as `--cgroup-path`. |
-| `controller.dns.trustedServers` | `[]` | Extra trusted DNS server IPs, joined into `--trusted-dns-servers`. |
+| `controller.dns.trustedServers` | `[]` | DNS server IPs trusted in addition to kube-dns, joined into `--trusted-dns-servers`. Add a node-local cache that pods query at its own address, such as NodeLocal DNSCache's `169.254.20.10`. |
 | `controller.resources` | see below | |
 | `webhook.replicas` | `1` | |
 | `webhook.resources` | see below | |
@@ -291,17 +339,18 @@ securityContext:
       - SYS_RESOURCE
 ```
 
-The controller also requires `hostPID: true` at the pod level to see container processes (`/proc/<pid>/root`, `/proc/<pid>/exe`) for uprobe attachment and to enter the host network namespace when attaching the tc program.
+The controller also requires `hostPID: true` at the pod level to see container processes (`/proc/<pid>/root`, `/proc/<pid>/exe`) for uprobe attachment, to enter pod and host network namespaces when attaching the tc programs, and to read the node's routes for the virtual IP range check.
 
 The webhook does **not** require any elevated privileges and runs with default security settings.
 
 ## Volume Mounts (Controller)
 
-The controller DaemonSet mounts four host paths:
+The controller DaemonSet mounts these host paths:
 
 | Mount Path | Host Path | Access | Purpose |
 |---|---|---|---|
 | `/host/sys/fs/cgroup` | `/sys/fs/cgroup` | Read-write | Cgroup v2 filesystem for resolving container cgroup IDs |
-| `/sys/fs/bpf` | `/sys/fs/bpf` | Read-write | BPF filesystem (mounted, but nothing is pinned today; programs and maps are released when the controller stops) |
+| `/sys/fs/bpf` | `/sys/fs/bpf` | Read-write | BPF filesystem. The virtual IP maps are pinned under `/sys/fs/bpf/kloak` so a restart keeps them; programs and other maps are released when the controller stops |
 | `/sys/kernel/btf` | `/sys/kernel/btf` | Read-only | Kernel BTF (BPF Type Format) data for CO-RE (Compile Once, Run Everywhere) |
 | `/sys/kernel/tracing` | `/sys/kernel/tracing` | Read-write (Bidirectional) | Tracefs for eBPF tracepoint and kprobe attachment. The `mount-tracefs` init container mounts tracefs here. |
+| `/var/run/nri` | `/var/run/nri` | Read-write | The container runtime's NRI socket directory (only when `controller.nri.enabled`; follows `controller.nri.socketPath`) |

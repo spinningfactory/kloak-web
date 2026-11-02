@@ -6,12 +6,12 @@ Kloak works by attaching eBPF uprobes to TLS library functions in your applicati
 
 Kloak currently supports these TLS stacks:
 
-- **OpenSSL 3.0 -- 3.6** (and 4.0, offsets tracked) -- covers Python, Node.js, Ruby, PHP, curl, C/C++, and other languages or tools that use OpenSSL, either via `libssl.so` or statically linked into the executable
+- **OpenSSL 3.0 -- 3.6** (and 4.0 -- 4.1, offsets tracked) -- covers Python, Node.js, Ruby, PHP, curl, C/C++, and other languages or tools that use OpenSSL, either via `libssl.so` or statically linked into the executable
 - **BoringSSL** -- C/C++ applications linking BoringSSL
 - **Bun** single-executable builds -- Bun statically links BoringSSL
 - **Go `crypto/tls`** (Go 1.20 -- 1.27) -- the standard library TLS implementation used by most Go applications
 
-All stacks support host filtering via DNS-verified resolution and work with HTTP/1.1, HTTP/2, and raw TLS connections.
+All stacks support host filtering through virtual IPs and the SNI check, and work with HTTP/1.1, HTTP/2, and raw TLS connections, over IPv4 and IPv6.
 
 ::: warning AES-GCM only
 Rewriting requires an AES-128-GCM or AES-256-GCM cipher suite (TLS 1.2 or TLS 1.3). Connections that negotiate ChaCha20-Poly1305 send the placeholder unchanged.
@@ -32,10 +32,10 @@ Go and Bun stop at the first match. Steps 3 and 4 attach to every match. TLS lib
 
 Host filtering works the same way for **all** supported runtimes. It does not depend on the TLS library or protocol (HTTP/1.1, HTTP/2, or raw TLS).
 
-Kloak uses **DNS-verified host filtering**: a kprobe on the kernel's `udp_recvmsg` captures DNS responses from trusted DNS servers, and connect tracepoints track TCP connections. At TLS write time, the destination hostname is resolved through this chain. See the [Host Filtering guide](/guides/host-filtering) for details.
+Kloak gives each allowed host a **virtual IP**. A pod that references a secret restricted to the host gets the virtual IP in its DNS answers, and its connections to it are redirected to the host's real addresses. When the encrypted record is sent, Kloak checks that the socket connected to the host's virtual IP and that the connection's TLS SNI is the host. See the [Host Filtering guide](/guides/host-filtering) for details.
 
 ::: tip
-Unlike SNI-based approaches, DNS-verified filtering works for HTTP/2, raw TLS sockets, and any protocol. No application-level changes are needed.
+Both checks happen in the kernel, on the socket and the ClientHello, so they work the same for HTTP/1.1, HTTP/2, raw TLS sockets, and any protocol. No application-level changes are needed.
 :::
 
 ## How the Rewrite Works
@@ -64,6 +64,7 @@ Kloak attaches uprobes to `SSL_write` and `SSL_write_ex` in OpenSSL. This covers
 
 | OpenSSL Version | Status |
 |---|---|
+| 4.1.x | Offsets tracked; no nightly end-to-end test yet |
 | 4.0.x | Offsets tracked; no nightly end-to-end test yet |
 | 3.6.x | Supported and nightly-tested |
 | 3.5.x | Supported and nightly-tested |
@@ -134,13 +135,11 @@ Go built with `GOEXPERIMENT=boringcrypto` is **not** supported yet.
 
 ## Bun
 
-**Status:** Supported (single-executable builds, Bun 1.3.12 -- 1.4.0)
+**Status:** Supported (single-executable builds, Bun 1.3.12 -- 1.4.4)
 
-Bun binaries are symbol-stripped, so Kloak identifies the Bun version from the `bun/X.Y.Z` string embedded in the binary and attaches at a pre-computed `SSL_write` offset. Offsets are tracked for Bun 1.3.12 -- 1.4.2 on amd64 and arm64. Other Bun versions are not detected.
+Bun binaries are symbol-stripped, so Kloak identifies the Bun version from the `bun/X.Y.Z` string embedded in the binary and attaches at a pre-computed `SSL_write` offset. Offsets are tracked for Bun 1.3.12 -- 1.4.4 on amd64 and arm64. Other Bun versions are not detected.
 
-::: warning Known issue: Bun 1.4.1+
-Bun 1.4.1 and later send the first request in the same TCP segment as the end of the TLS handshake, which Kloak does not rewrite yet. Treat Bun 1.3.12 -- 1.4.0 as working.
-:::
+Bun 1.4.1 and later send the first request in the same TCP segment as the end of the TLS handshake. Kloak finds and patches that request too.
 
 ## Go (crypto/tls)
 
@@ -183,15 +182,15 @@ If your application uses an unsupported TLS stack, you may still benefit from Kl
 
 | Runtime | TLS Library | eBPF Hook | Host Filtering | HTTP/2 | Notes |
 |---|---|---|---|---|---|
-| Python | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Tested |
-| Node.js | OpenSSL (bundled in `node`) | `SSL_write` | DNS-verified | Yes | Tested with node:22-alpine |
-| curl | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Tested |
-| Ruby | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Expected to work, untested |
-| PHP | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | Expected to work, untested |
-| Rust | OpenSSL (libssl) | `SSL_write` | DNS-verified | Yes | When using native-tls/openssl crates; untested |
-| C/C++ | OpenSSL or BoringSSL | `SSL_write` | DNS-verified | Yes | BoringSSL tested nightly |
-| Bun | BoringSSL (static) | `SSL_write` (file offset) | DNS-verified | Yes | 1.3.12 -- 1.4.0; 1.4.1+ known issue |
-| Go | crypto/tls | `tls.(*Conn).Write` | DNS-verified | Yes | Go 1.20 -- 1.27 |
+| Python | OpenSSL (libssl) | `SSL_write` | Virtual IP + SNI | Yes | Tested |
+| Node.js | OpenSSL (bundled in `node`) | `SSL_write` | Virtual IP + SNI | Yes | Tested with node:22-alpine |
+| curl | OpenSSL (libssl) | `SSL_write` | Virtual IP + SNI | Yes | Tested |
+| Ruby | OpenSSL (libssl) | `SSL_write` | Virtual IP + SNI | Yes | Expected to work, untested |
+| PHP | OpenSSL (libssl) | `SSL_write` | Virtual IP + SNI | Yes | Expected to work, untested |
+| Rust | OpenSSL (libssl) | `SSL_write` | Virtual IP + SNI | Yes | When using native-tls/openssl crates; untested |
+| C/C++ | OpenSSL or BoringSSL | `SSL_write` | Virtual IP + SNI | Yes | BoringSSL tested nightly |
+| Bun | BoringSSL (static) | `SSL_write` (file offset) | Virtual IP + SNI | Yes | 1.3.12 -- 1.4.4 |
+| Go | crypto/tls | `tls.(*Conn).Write` | Virtual IP + SNI | Yes | Go 1.20 -- 1.27 |
 | Go (boringcrypto) | BoringSSL | -- | -- | -- | Not supported yet |
 | GnuTLS apps | GnuTLS | `gnutls_record_send` | -- | -- | Attaches, no rewrite yet |
 | Java (JSSE) | JVM built-in | -- | -- | -- | Not supported |

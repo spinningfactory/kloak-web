@@ -1,0 +1,39 @@
+[
+  {
+    "text": "Getting Started",
+    "items": [
+      { "text": "Installation", "link": "/getting-started/installation" },
+      { "text": "Configuration", "link": "/getting-started/configuration" },
+      { "text": "Quick Start", "link": "/getting-started/quick-start" }
+    ]
+  },
+  {
+    "text": "Guides",
+    "items": [
+      { "text": "Protecting Secrets", "link": "/guides/protecting-secrets" },
+      { "text": "Host Filtering", "link": "/guides/host-filtering" },
+      { "text": "Supported Runtimes", "link": "/guides/supported-runtimes" }
+    ]
+  },
+  {
+    "text": "Tutorials",
+    "items": [
+      { "text": "OpenClaw with Kloak", "link": "/tutorials/openclaw-with-kloak" }
+    ]
+  },
+  {
+    "text": "Architecture",
+    "items": [
+      { "text": "Overview", "link": "/architecture/overview" },
+      { "text": "Security Model", "link": "/architecture/security-model" }
+    ]
+  },
+  {
+    "text": "Reference",
+    "items": [
+      { "text": "Labels & Annotations", "link": "/reference/labels-annotations" },
+      { "text": "Limits", "link": "/reference/limits" },
+      { "text": "Requirements", "link": "/reference/requirements" }
+    ]
+  }
+]

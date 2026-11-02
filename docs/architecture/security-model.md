@@ -12,7 +12,11 @@ Kloak is designed to protect Kubernetes secrets against the following threats:
 
 **Container escape to application namespace** -- An attacker who escapes to the node filesystem within the application namespace cannot recover real secrets. The shadow secret files contain only `kl::` placeholders. Outside the API server/etcd (where the original Secret lives), the real values exist only in the controller's informer cache (in `kloak-system`) and in kernel-space BPF maps.
 
-**Secret exfiltration via SSRF** -- An attacker exploits a server-side request forgery vulnerability to make the application send HTTP requests to an attacker-controlled server. Without host filtering, the TLS connection to the attacker's server would carry the real secret. With `getkloak.io/hosts` configured, Kloak's eBPF program checks the destination hostname before rewriting -- connections to unauthorized hosts receive the harmless `kl::` placeholder.
+**Secret exfiltration via SSRF** -- An attacker exploits a server-side request forgery vulnerability to make the application send HTTP requests to an attacker-controlled server. Without host filtering, the TLS connection to the attacker's server would carry the real secret. With `getkloak.io/hosts` configured, Kloak only rewrites on a connection made to the allowed host's virtual IP -- connections to unauthorized hosts receive the harmless `kl::` placeholder.
+
+**Tenant confusion on shared addresses** -- CDNs and cloud load balancers serve many customers on the same IPs and route each TLS connection by its SNI. A compromised application could connect to the allowed host's address while naming another tenant's domain in its ClientHello. Each allowed host has its own virtual IP, and a secret restricted to a hostname is only rewritten on a connection whose SNI is that host.
+
+**Placeholder reuse by another pod** -- An attacker who controls a kloak-enabled pod and learns another workload's placeholder (from a log, an error report, or a shared volume) sends it to the secret's allowed host. Kloak binds each secret to the pods that reference it in their spec, so the placeholder is not rewritten for the attacker's pod, and the controller logs a `secret binding violation`.
 
 **Accidental secret leakage** -- Secrets accidentally logged, serialized to JSON, sent in error reports, or included in stack traces are harmless `kl::` placeholders. The real value is only present in the kernel-encrypted TLS stream to the intended destination.
 
@@ -26,7 +30,7 @@ Kloak is designed to protect Kubernetes secrets against the following threats:
 
 **Non-TLS exfiltration** -- If an application sends secrets over plaintext HTTP, raw TCP, or UDP, Kloak cannot intercept or rewrite the data. Kloak operates on TLS write functions (`SSL_write`/`SSL_write_ex`, `crypto/tls.(*Conn).Write`). Network policies should be used to restrict non-TLS egress.
 
-**Denial of service** -- An attacker who can crash the controller DaemonSet or delete the webhook deployment can stop Kloak from working. If the controller is down, all eBPF programs are detached and running pods send placeholders until it is back (fail closed; persisting programs across restarts is tracked in spinningfactory/kloak#107). If the webhook is down, creation of kloak-enabled pods and create/update of kloak-enabled Secrets is blocked (`failurePolicy: Fail`). Pods never fall back to mounting the original secret.
+**Denial of service** -- An attacker who can crash the controller DaemonSet or delete the webhook deployment can stop Kloak from working. If the controller is down, all eBPF programs are detached: running pods send placeholders, and their connections to virtual IPs fail, until it is back (fail closed; persisting programs across restarts is tracked in spinningfactory/kloak#107). If the webhook is down, creation of kloak-enabled pods and create/update of kloak-enabled Secrets is blocked (`failurePolicy: Fail`). Pods never fall back to mounting the original secret.
 
 ## Trust Chain
 
@@ -58,15 +62,16 @@ The BPF programs are loaded by the controller and run in kernel context. They ar
 
 ### 5. DNS Resolution
 
-Host filtering depends on the integrity of DNS responses. Kloak captures DNS responses via a kprobe on `udp_recvmsg` and validates the source IP against a whitelist of trusted DNS servers (auto-discovered from `kube-dns` or user-configured).
+Host filtering depends on the integrity of DNS answers. Kloak only rewrites answers that come from trusted resolvers (kube-dns's ClusterIPs and endpoints, discovered, plus `controller.dns.trustedServers`): it hands the pod the host's virtual IP and records the real addresses the resolver returned, which is where connections to the virtual IP go.
 
-**If poisoned:** An attacker who can spoof DNS responses from a trusted server IP could trick Kloak into associating an attacker-controlled IP with an allowed hostname. The eBPF program would then rewrite secrets for connections to that IP.
+**If poisoned:** An attacker who can spoof answers from a trusted resolver could make a virtual IP lead to an attacker-controlled address. Connections to the virtual IP would then reach that address and carry the secret, as long as their SNI is the allowed host.
 
 **Mitigations:**
-- Trusted DNS server whitelist limits which source IPs are accepted
-- DNS entries include TTL enforcement -- expired entries are rejected (a TTL of 0 never expires)
+- Only answers from trusted resolvers are rewritten, and only for pods that reference a secret restricted to the host
+- The real addresses expire with the TTL of their DNS record
+- The application still validates the server's certificate for the allowed host, so a spoofed address only receives the secret from an application that skips certificate validation
 - In-cluster DNS (CoreDNS/kube-dns) is typically not accessible to application pods for spoofing
-- DNSSEC or encrypted DNS (DoH/DoT) at the cluster level further reduces risk
+- DNSSEC at the cluster level further reduces risk
 
 ### 6. TLS Library Integrity
 
@@ -87,7 +92,7 @@ The controller DaemonSet requires elevated privileges:
 | `hostPID: true` | Resolve container PIDs and access `/proc/<pid>/ns/net` and the root netns (`/proc/1/ns/net`) for tc attachment |
 | `privileged: true` | Required for eBPF operations on most Kubernetes distributions |
 | `runAsUser: 0`, AppArmor `Unconfined` | Run as root without AppArmor restrictions |
-| hostPath mounts | `/sys/fs/cgroup`, `/sys/fs/bpf`, `/sys/kernel/btf` (read-only), and tracefs at `/sys/kernel/tracing` |
+| hostPath mounts | `/sys/fs/cgroup`, `/sys/fs/bpf` (virtual IP map pins), `/sys/kernel/btf` (read-only), tracefs at `/sys/kernel/tracing`, and the NRI socket directory `/var/run/nri` |
 
 ::: warning
 The controller runs as a privileged DaemonSet. Restrict access to the `kloak-system` namespace with tight RBAC policies. Only cluster administrators should be able to modify resources in this namespace.
@@ -105,16 +110,18 @@ Kubernetes API (root of trust)
   │     └── Creates shadow secrets with kl:: placeholders
   │
   ├── Controller (per-node)
-  │     ├── Joins Secret + shadow, syncs real values to BPF maps every 5s
-  │     ├── Attaches uprobes to TLS write functions
-  │     ├── Attaches tc patch program to host-side veth peers
+  │     ├── Joins Secret + shadow, syncs real values to BPF maps on change
+  │     ├── Gives each allowed host a virtual IP
+  │     ├── Binds each pod's containers to the secrets it references
+  │     ├── Attaches uprobes to TLS write functions (before start, with NRI)
+  │     ├── Attaches tc programs to pod interfaces and host-side veth peers
   │     └── Discovers trusted DNS servers
   │
   └── eBPF Programs (kernel)
-        ├── Uprobe: scan for placeholders, compute XOR delta
-        ├── tcp_sendmsg kprobe: bridge patches to the connection
-        ├── DNS kprobe: validate responses from trusted servers
-        ├── Connect tracepoint: track fd → IP mappings
+        ├── tc (pod netns): rewrite DNS answers to virtual IPs
+        ├── cgroup connect hooks: redirect virtual IPs, record socket host
+        ├── Uprobe: scan for placeholders, check binding, compute XOR delta
+        ├── tcp_sendmsg kprobes: record SNI; check host, SNI, IP and port
         └── tc (host-side veth): patch ciphertext, recompute GHASH tag
 ```
 
@@ -124,13 +131,17 @@ Kloak is designed to **fail secure** -- if any component fails, the application 
 
 | Failure | Impact |
 |---|---|
-| Controller down | All eBPF programs are detached; running pods send placeholders until the controller is back. New shadow secrets are not created, and the webhook rejects pods referencing kloak-enabled secrets without a shadow (fail-closed). |
+| Controller down | All eBPF programs are detached; running pods send placeholders, and connections to virtual IPs fail, until the controller is back. New shadow secrets are not created, and the webhook rejects pods referencing kloak-enabled secrets without a shadow (fail-closed). |
+| Virtual IP range overlaps a cluster or node range | The controller refuses to start (see [Virtual IP Ranges](/getting-started/configuration#virtual-ip-ranges)). |
 | Webhook down | Only affects kloak-enabled namespaces and pods (via selectors). Non-kloak workloads are unaffected. failurePolicy: Fail blocks kloak-enabled pod creation and create/update of kloak-enabled Secrets. |
 | Shadow secret missing | Webhook rejects the pod to prevent real secrets from being mounted. Pod creation succeeds once the controller creates the shadow. |
 | Uprobe attachment fails | Application sends the `kl::` placeholder to the remote server. Request fails at the API level (invalid credential). |
 | H extraction fails | No patch is created; the application sends the placeholder (all runtimes). |
+| Pod does not reference the secret | Not rewritten; placeholder sent and a `secret binding violation` logged (with `--secret-binding=audit`, rewritten and logged). |
 | Non-AES-GCM cipher (e.g. ChaCha20-Poly1305) | Not rewritten; placeholder sent. |
-| DNS resolution missing | Host cannot be verified. eBPF program does not rewrite -- placeholder sent. |
+| Connection not made through the host's virtual IP (hardcoded address, DNS-over-HTTPS, untrusted resolver, lookup before the DNS rewrite was attached) | Host cannot be verified. Placeholder sent. |
+| TLS SNI is not the allowed host, or missing, or encrypted (ECH) | Not rewritten; placeholder sent and an `SNI check violation` logged (with `--sni-check=audit`, rewritten and logged). |
+| Connect to a virtual IP whose host has no known address | Refused. |
 | BPF map full | New entries rejected. Existing secrets continue working. New secrets send placeholder. |
 | tc program not attached (e.g. attach error, or a CNI filter conflict on the `clsact` path) | XOR delta computed but not applied. Ciphertext contains the placeholder. |
 
@@ -154,7 +165,11 @@ The XOR-patch path requires version-specific struct offsets for extracting the G
 
 ### Cipher Suites and Protocols
 
-Only AES-128-GCM and AES-256-GCM cipher suites (TLS 1.2 and 1.3) are rewritten. ChaCha20-Poly1305 connections send the placeholder. Only IPv4 destinations are supported.
+Only AES-128-GCM and AES-256-GCM cipher suites (TLS 1.2 and 1.3) are rewritten. ChaCha20-Poly1305 connections send the placeholder. IPv4 and IPv6 destinations are supported; without an IPv6 virtual IP range, an application that connects to a host-restricted secret's host over IPv6 gets no rewrite.
+
+### Connections Outside the Pod's DNS
+
+A secret restricted to a hostname is only rewritten on a connection made to the host's virtual IP, which the pod only gets from a trusted resolver. Applications that connect to hardcoded addresses, resolve names over DNS-over-HTTPS, or query their own resolver send the placeholder to that host. For such applications, restrict the secret to the server's IP address instead.
 
 ### Kernel Version
 

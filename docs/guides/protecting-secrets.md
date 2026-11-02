@@ -9,7 +9,7 @@ When you label a Secret with `getkloak.io/enabled=true`, Kloak's SecretReconcile
 1. Creates a **shadow secret** named `<original>-kloak` containing `kl::` placeholder values (`kl::` followed by random characters)
 2. Generates each placeholder at exactly the original value's byte length and HPACK Huffman bit length, so HTTP/1.1 and HTTP/2 rewrites keep the wire format valid
 
-Every 5 seconds the controller joins each enabled Secret with its shadow and syncs the placeholder-to-real-value pairs into the eBPF `secret_map`.
+Whenever an enabled Secret or its shadow is created, changed or deleted, the controller joins each enabled Secret with its shadow and syncs the placeholder-to-real-value pairs into the eBPF `secret_map`. It also resyncs every 5 minutes.
 
 Your application mounts and reads the shadow secret -- it only ever sees the placeholders. When the application writes data over TLS, an eBPF uprobe on the TLS write function scans for the `kl::` prefix and records the patch; after the TLS library encrypts the data, a tc program patches the real value into the ciphertext before the packet leaves the node.
 
@@ -129,6 +129,10 @@ When a pod with the `getkloak.io/enabled=true` label (or in a labeled namespace)
 Secrets referenced through `projected` volume sources are **not** rewritten. Don't reference protected secrets through projected volumes.
 :::
 
+::: tip Only the pods that reference a secret can use it
+The controller binds each pod's containers to the secrets its spec references. If another kloak-enabled pod sends this secret's placeholder, even one that learned it from a log, the placeholder goes out unchanged and the controller logs a `secret binding violation`. See [Per-Pod Secret Binding](/getting-started/configuration#per-pod-secret-binding).
+:::
+
 You can verify the mutation worked:
 
 ```bash
@@ -225,10 +229,11 @@ The application reads `kl::Os;&Xuie02icasosoi` from the mounted secret, but http
 ::: danger
 If you see the `kl::` placeholder in the httpbin response, the eBPF rewrite did not trigger. Common causes:
 - The controller pod is not running or not ready on the node
-- The eBPF map has not synced yet (wait 10-15 seconds after pod startup)
 - The connection negotiated a non-AES-GCM cipher suite (e.g. ChaCha20-Poly1305)
 - The application's TLS library or version is not supported (see [Supported Runtimes](/guides/supported-runtimes))
-- The DNS resolution for the target host was not captured (check controller logs for DNS debug counters)
+- The application connected to a real address of the host instead of its virtual IP: it started before the DNS rewrite was attached (restart the pod), resolved the name outside the pod's DNS, or used a hardcoded address (see [How Host Resolution Works](/guides/host-filtering#how-host-resolution-works))
+- The TLS SNI is not the host in `getkloak.io/hosts` (the controller logs `SNI check violation`)
+- The pod that sent the placeholder does not reference the secret in its spec (the controller logs `secret binding violation`)
 :::
 
 ## What Happens Under the Hood
@@ -243,27 +248,32 @@ Here is the complete lifecycle of a protected secret:
    │  HPACK Huffman bit length as the original
    │
 3. Controller syncs placeholder → real value + host/IP/port filter
-   │  into the eBPF secret_map (every 5 seconds)
+   │  into the eBPF secret_map, and gives the allowed host a virtual IP
    │
 4. Pod is created referencing the original secret
    │
 5. Webhook intercepts admission, rewrites reference: api-credentials → api-credentials-kloak
    │
 6. Pod starts, reads shadow secret → sees "kl::Os;&Xuie02icasosoi"
+   │  Its DNS answers for api.stripe.com carry the host's virtual IP
    │
-7. Controller detects pod, finds PID via cgroup, attaches eBPF uprobes
+7. Controller detects pod, binds its containers to the secrets it references,
+   │  finds PID via cgroup, attaches eBPF uprobes
    │
 8. App calls SSL_write() / tls.Conn.Write() with data containing "kl::..."
    │
 9. eBPF uprobe fires (plaintext buffer is never modified):
    ├─ Phase 1: Scans the write buffer for "kl::" (or its HPACK Huffman form)
    │           and records the 8-byte lookup keys
-   └─ Phase 2 (tail call): Looks up each key, checks the host/IP/port filter,
-              computes an XOR delta (placeholder XOR real value)
+   └─ Phase 2 (tail call): Looks up each key, checks that the pod
+              references the secret, computes an XOR delta
+              (placeholder XOR real value)
    │
-10. TLS library encrypts the placeholder; a tc program on the host side of
-    the pod's veth XORs the delta into the AES-GCM ciphertext and recomputes
-    the GCM tag
+10. TLS library encrypts the placeholder; the tcp_sendmsg kprobe keeps the
+    patch only if the socket connected to the host's virtual IP (and the
+    allowed IP/port) and its SNI is the host; a tc program on the host side
+    of the pod's veth XORs the delta into the AES-GCM ciphertext and
+    recomputes the GCM tag
     └─ The application process never had access to the real value
 ```
 
@@ -275,7 +285,7 @@ When you update the original secret, Kloak automatically:
 2. Keeps the existing placeholder when the new value has the same byte length and the same HPACK Huffman bit length
 3. Generates new placeholders for new keys or values whose length or Huffman bit length changed
 4. Updates the shadow secret
-5. Syncs the new mappings to the eBPF map (within 5 seconds)
+5. Syncs the new mappings to the eBPF map
 
 No pod restart is required -- the eBPF map is updated live.
 
@@ -291,4 +301,4 @@ To stop protecting a secret, remove the label:
 kubectl label secret api-credentials getkloak.io/enabled- -n my-app
 ```
 
-The SecretReconciler will automatically delete the shadow secret, and the next sync removes its entries from the eBPF map. Running pods will continue to see the old placeholder values (which are no longer rewritten) until restarted.
+The SecretReconciler will automatically delete the shadow secret, and the sync that follows removes its entries from the eBPF map. Running pods will continue to see the old placeholder values (which are no longer rewritten) until restarted.
