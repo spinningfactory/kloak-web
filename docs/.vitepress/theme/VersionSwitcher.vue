@@ -18,6 +18,15 @@ const links = computed(() =>
   })),
 )
 
+// This version's release notes page, or the GitHub releases when it has none.
+const releaseNotes = computed(() => {
+  const page = 'reference/release-notes.md'
+  const version = versioning.value.versions.find((v) => v.id === versioning.value.current)
+  return version?.pages.includes(page)
+    ? { href: versionHref(version, page, site.value.cleanUrls), target: '_self' }
+    : { href: versioning.value.releasesUrl, target: '_blank' }
+})
+
 const open = ref(false)
 </script>
 
@@ -37,7 +46,7 @@ const open = ref(false)
       target="_self"
     >{{ link.text }}</a>
     <div class="divider" />
-    <a class="link" :href="versioning.releasesUrl" target="_blank" rel="noreferrer">
+    <a class="link" :href="releaseNotes.href" :target="releaseNotes.target" rel="noreferrer">
       Release notes
     </a>
   </VPFlyout>
@@ -56,7 +65,7 @@ const open = ref(false)
         :href="link.href"
         target="_self"
       >{{ link.text }}</a>
-      <a class="item" :href="versioning.releasesUrl" target="_blank" rel="noreferrer">
+      <a class="item" :href="releaseNotes.href" :target="releaseNotes.target" rel="noreferrer">
         Release notes
       </a>
     </div>
